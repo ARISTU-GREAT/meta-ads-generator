@@ -7,6 +7,7 @@ const { pool }     = require('./db');
 const brandsRouter     = require('./routes/brands');
 const uploadRouter     = require('./routes/upload');
 const adsRouter        = require('./routes/ads');
+const layoutsRouter    = require('./routes/layouts');
 const templatesRouter  = require('./routes/templates');
 const jobsRouter       = require('./routes/jobs');
 const generateRouter   = require('./routes/generate');
@@ -73,6 +74,7 @@ app.use('/api/jobs',      jobsRouter);
 app.use('/api/generate',  generateRouter);
 app.use('/api/campaigns', campaignsRouter);
 app.use('/api/concepts',  conceptsRouter);
+app.use('/api/ads/:id/layout', layoutsRouter);
 
 // SPA fallback — only for non-API, non-asset routes
 app.get('*', (req, res, next) => {

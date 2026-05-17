@@ -1606,6 +1606,44 @@ const App = (() => {
       .catch(() => toast('Could not load image as reference', 'error'));
   }
 
+  // ── Export creative layout as Figma-compatible JSON ──────────
+  async function exportToFigma() {
+    const ad = state.studio.ad;
+    if (!ad?.id) return;
+
+    const hintEl = document.getElementById('studio-export-hint');
+    const btnEl  = document.getElementById('btn-export-figma');
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Exporting…'; }
+    if (hintEl) hintEl.textContent = '';
+
+    try {
+      const res = await fetch(`/api/ads/${ad.id}/layout/export`, { credentials: 'include' });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.error || b.message || msg; } catch {}
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `creative-layout-${ad.id.slice(0, 8)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (hintEl) hintEl.textContent = 'Downloaded — import via Figma plugin';
+    } catch (err) {
+      console.error('[exportToFigma] failed:', err.message);
+      if (hintEl) hintEl.textContent = err.message.includes('No layout') ? 'Layout not ready yet — try after generation' : 'Export failed';
+    } finally {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 38 57" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><path d="M19 28.5A9.5 9.5 0 1 1 28.5 19 9.5 9.5 0 0 1 19 28.5Z" fill="currentColor"/><path d="M9.5 57A9.5 9.5 0 0 0 19 47.5V38H9.5A9.5 9.5 0 0 0 0 47.5 9.5 9.5 0 0 0 9.5 57Z" fill="currentColor"/><path d="M0 28.5A9.5 9.5 0 0 0 9.5 38H19V19H9.5A9.5 9.5 0 0 0 0 28.5Z" fill="currentColor"/><path d="M0 9.5A9.5 9.5 0 0 0 9.5 19H19V0H9.5A9.5 9.5 0 0 0 0 9.5Z" fill="currentColor"/><path d="M19 0V19H28.5A9.5 9.5 0 0 0 28.5 0Z" fill="currentColor"/></svg> Export Layout JSON`;
+      }
+    }
+  }
+
   // ── Quick board card actions ─────────────────────────────────
   function downloadAd(adId) {
     const ad  = state.boardAds.find(a => a.id === adId);
@@ -2032,7 +2070,7 @@ const App = (() => {
 
     // Studio
     closeStudio, downloadStudioAd, approveStudioAd, deleteStudioAd, remixThisAd,
-    approveAndLearn, rejectAndLearn,
+    approveAndLearn, rejectAndLearn, exportToFigma,
 
     // Brand Memory
     filterMemory, analyzeAllAssets, generateNewAngles,

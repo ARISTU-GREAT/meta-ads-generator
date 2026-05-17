@@ -23,6 +23,7 @@ const { AppError } = require('../utils/errors');
 require('../utils/paths'); // ensures upload dirs are created on startup
 const { composeCreativeStrategy } = require('./promptComposerService');
 const { getRelevantMemoriesForBrand, formatMemoryContext } = require('./brandMemoryService');
+const { buildLayoutFromStrategy, saveLayout } = require('./layoutService');
 
 // Lazy-init — safe to load without OPENAI_API_KEY at startup
 let _openai = null;
@@ -210,8 +211,18 @@ async function remixGenerate({
     ]
   );
 
+  const ad = rows[0];
+
+  // Save creative layout non-blocking — never fails the generation
+  try {
+    const layoutJson = buildLayoutFromStrategy(strategy, brand, aspectRatio, ad.id);
+    await saveLayout(ad.id, layoutJson);
+  } catch (layoutErr) {
+    console.warn('[layoutService] layout save failed for ad', ad.id, ':', layoutErr.message);
+  }
+
   return {
-    ad:             rows[0],
+    ad,
     imageUrl,
     creativeStrategy: strategy
       ? {
@@ -409,8 +420,18 @@ async function remixGenerateBatch({
       ]
     );
 
+    const batchAd = rows[0];
+
+    // Save layout non-blocking
+    try {
+      const layoutJson = buildLayoutFromStrategy(strategy, brand, aspectRatio, batchAd.id);
+      await saveLayout(batchAd.id, layoutJson);
+    } catch (layoutErr) {
+      console.warn('[layoutService] batch layout save failed for ad', batchAd.id, ':', layoutErr.message);
+    }
+
     return {
-      ad:             rows[0],
+      ad:             batchAd,
       imageUrl,
       variationIndex: i + 1,
     };
@@ -590,7 +611,17 @@ async function remixGenerateBatchStream({
     }
 
     const { rows } = await query(sql, finalParams);
-    return { ad: rows[0], imageUrl, variationIndex: i + 1 };
+    const streamAd = rows[0];
+
+    // Save layout non-blocking
+    try {
+      const layoutJson = buildLayoutFromStrategy(strategy, brand, aspectRatio, streamAd.id);
+      await saveLayout(streamAd.id, layoutJson);
+    } catch (layoutErr) {
+      console.warn('[layoutService] stream layout save failed for ad', streamAd.id, ':', layoutErr.message);
+    }
+
+    return { ad: streamAd, imageUrl, variationIndex: i + 1 };
   });
 
   const creativeStrategy = strategy
