@@ -14,12 +14,17 @@ function getOpenAI() {
 router.get('/', asyncHandler(async (req, res) => {
   const { brandId } = req.params;
   const { source_type } = req.query;
-  const params = [brandId];
-  let sql = 'SELECT * FROM creative_memories WHERE brand_id = $1';
-  if (source_type) { sql += ' AND source_type = $2'; params.push(source_type); }
-  sql += ' ORDER BY created_at DESC';
-  const { rows } = await query(sql, params);
-  res.json({ success: true, data: rows });
+  try {
+    const params = [brandId];
+    let sql = 'SELECT * FROM creative_memories WHERE brand_id = $1';
+    if (source_type) { sql += ' AND source_type = $2'; params.push(source_type); }
+    sql += ' ORDER BY created_at DESC';
+    const { rows } = await query(sql, params);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.warn('[memory/list] table may not exist:', err.message);
+    res.json({ success: true, data: [] });
+  }
 }));
 
 // DELETE /api/brands/:brandId/memory/:memoryId
@@ -84,11 +89,16 @@ router.post('/analyze-all-assets', asyncHandler(async (req, res) => {
 
 // GET /api/brands/:brandId/memory/angles
 router.get('/angles', asyncHandler(async (req, res) => {
-  const { rows } = await query(
-    "SELECT * FROM angle_library WHERE brand_id = $1 AND status = 'active' ORDER BY created_at DESC",
-    [req.params.brandId]
-  );
-  res.json({ success: true, data: rows });
+  try {
+    const { rows } = await query(
+      "SELECT * FROM angle_library WHERE brand_id = $1 AND status = 'active' ORDER BY created_at DESC",
+      [req.params.brandId]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.warn('[memory/angles] table may not exist:', err.message);
+    res.json({ success: true, data: [] });
+  }
 }));
 
 // POST /api/brands/:brandId/memory/angles/generate

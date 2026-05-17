@@ -1031,6 +1031,15 @@ body {
   display: block;
   transition: opacity 0.3s;
 }
+.board-card-img-fail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: var(--text-3);
+  font-size: 0.72rem;
+  background: var(--surface-2);
+}
 .board-card-footer {
   padding: 8px 10px;
   display: flex;
@@ -1226,6 +1235,16 @@ body {
   object-fit: contain;
   border-radius: var(--r);
   box-shadow: var(--shadow-lg);
+}
+.studio-img-fail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  border-radius: var(--r);
+  border: 1px dashed var(--border);
+  color: var(--text-3);
+  font-size: 0.8rem;
 }
 .studio-meta-col {
   border-left: 1px solid var(--border);

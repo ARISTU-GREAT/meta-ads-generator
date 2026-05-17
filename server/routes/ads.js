@@ -35,16 +35,28 @@ router.delete('/:id', asyncHandler(async (req, res) => {
 router.post('/:id/approve-learn', asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT brand_id FROM generated_ads WHERE id = $1', [req.params.id]);
   if (!rows.length) throw new AppError('Ad not found', 404);
-  await brandMemoryService.markAdApproved(req.params.id, rows[0].brand_id);
-  res.json({ success: true, message: 'Ad approved and saved to Brand Memory' });
+  let memoryWarning = null;
+  try {
+    await brandMemoryService.markAdApproved(req.params.id, rows[0].brand_id);
+  } catch (memErr) {
+    console.warn('[approve-learn] memory save failed (non-fatal):', memErr.message);
+    memoryWarning = 'Ad approved but memory save failed — run init-db to create memory tables.';
+  }
+  res.json({ success: true, message: memoryWarning || 'Ad approved and saved to Brand Memory' });
 }));
 
 // POST /api/ads/:id/reject-learn — reject and save negative guidance to brand memory
 router.post('/:id/reject-learn', asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT brand_id FROM generated_ads WHERE id = $1', [req.params.id]);
   if (!rows.length) throw new AppError('Ad not found', 404);
-  await brandMemoryService.markAdRejected(req.params.id, rows[0].brand_id, req.body.reason || '');
-  res.json({ success: true, message: 'Ad rejected and saved to Brand Memory' });
+  let memoryWarning = null;
+  try {
+    await brandMemoryService.markAdRejected(req.params.id, rows[0].brand_id, req.body.reason || '');
+  } catch (memErr) {
+    console.warn('[reject-learn] memory save failed (non-fatal):', memErr.message);
+    memoryWarning = 'Ad rejected but memory save failed — run init-db to create memory tables.';
+  }
+  res.json({ success: true, message: memoryWarning || 'Ad rejected and saved to Brand Memory' });
 }));
 
 // GET /api/ads/concepts/list

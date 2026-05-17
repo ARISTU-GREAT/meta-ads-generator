@@ -770,11 +770,12 @@ const App = (() => {
     const card = document.createElement('div');
     card.className = 'board-card';
     card.dataset.adId = ad.id;
+    const imgSrc = resolveAdImage(ad);
     card.innerHTML = `
       <div class="board-card-img-wrap">
-        ${ad.image_url ? `<img src="${ad.image_url}" alt="Ad" loading="lazy" />` : ''}
+        ${imgSrc ? `<img src="${imgSrc}" alt="Ad" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div class="board-card-img-fail hidden">Preview unavailable</div>` : '<div class="board-card-img-fail">No image</div>'}
         <div class="board-card-overlay">
-          <button class="board-card-action" onclick="event.stopPropagation();App.downloadAd('${ad.image_url}','${ad.id}')">↓</button>
+          <button class="board-card-action" onclick="event.stopPropagation();App.downloadAd('${ad.id}')">↓</button>
           <button class="board-card-action" onclick="event.stopPropagation();App.approveAd('${ad.id}')">✓</button>
         </div>
       </div>
@@ -1448,8 +1449,21 @@ const App = (() => {
     const meta = safeJSON(ad.metadata) || {};
     const strategy = meta.strategy || {};
 
-    const img    = document.getElementById('studio-img');
-    if (img) img.src = ad.image_url || '';
+    const imgSrc = resolveAdImage(ad);
+    console.log('[studio] ad id:', ad.id, '| image_url length:', (ad.image_url || '').length, '| resolved src starts with:', imgSrc.slice(0, 40));
+    const img = document.getElementById('studio-img');
+    const imgFail = document.getElementById('studio-img-fail');
+    if (img) {
+      img.src = imgSrc;
+      img.style.display = imgSrc ? '' : 'none';
+      img.onerror = () => {
+        console.warn('[studio] image failed to load:', imgSrc.slice(0, 80));
+        img.style.display = 'none';
+        if (imgFail) imgFail.classList.remove('hidden');
+      };
+      img.onload = () => { if (imgFail) imgFail.classList.add('hidden'); };
+    }
+    if (imgFail) imgFail.classList.toggle('hidden', !!imgSrc);
 
     // Format tag
     const fmtTag = ad.ad_format || strategy.layout_type || '—';
@@ -1502,9 +1516,10 @@ const App = (() => {
 
   function downloadStudioAd() {
     const ad = state.studio.ad;
-    if (!ad?.image_url) return;
+    const src = resolveAdImage(ad);
+    if (!src) return;
     const a  = document.createElement('a');
-    a.href   = ad.image_url;
+    a.href   = src;
     a.download = `meta-ad-${ad.id}.png`;
     a.click();
   }
@@ -1542,11 +1557,11 @@ const App = (() => {
   }
 
   function remixThisAd() {
-    const ad = state.studio.ad;
-    if (!ad?.image_url) return;
+    const ad  = state.studio.ad;
+    const src = resolveAdImage(ad);
+    if (!src) return;
 
-    // Load the ad image as a blob and set it as the reference file
-    fetch(ad.image_url)
+    fetch(src)
       .then(r => r.blob())
       .then(blob => {
         const file = new File([blob], 'reference.png', { type: 'image/png' });
@@ -1568,9 +1583,12 @@ const App = (() => {
   }
 
   // ── Quick board card actions ─────────────────────────────────
-  function downloadAd(imageUrl, adId) {
+  function downloadAd(adId) {
+    const ad  = state.boardAds.find(a => a.id === adId);
+    const src = resolveAdImage(ad);
+    if (!src) return;
     const a  = document.createElement('a');
-    a.href   = imageUrl;
+    a.href   = src;
     a.download = `meta-ad-${adId}.png`;
     a.click();
   }
@@ -1651,7 +1669,7 @@ const App = (() => {
         reference_ad:  'Reference',
         manual_note:   'Note',
         template:      'Template',
-        generated:     'Generated',
+        generated_ad:  'Generated',
       }[m.source_type] || m.source_type;
       const badgeClass = {
         approved_ad:  'badge-approved',
@@ -1659,7 +1677,7 @@ const App = (() => {
         reference_ad: 'badge-reference',
         manual_note:  'badge-note',
       }[m.source_type] || '';
-      const summary = esc(m.creative_summary || m.notes || '');
+      const summary = esc(m.summary || m.title || '');
       return `
         <div class="memory-card">
           <div class="memory-card-header">
@@ -1667,10 +1685,10 @@ const App = (() => {
             <button class="memory-card-del" onclick="App.deleteMemory('${m.id}')" title="Delete">✕</button>
           </div>
           ${summary ? `<div class="memory-card-summary">${summary}</div>` : ''}
-          ${m.color_palette ? `<div class="memory-card-meta">Colors: ${esc(m.color_palette)}</div>` : ''}
-          ${m.ad_energy     ? `<div class="memory-card-meta">Energy: ${esc(m.ad_energy)}</div>` : ''}
-          ${m.layout_type   ? `<div class="memory-card-meta">Layout: ${esc(m.layout_type)}</div>` : ''}
-          ${m.rejection_reason ? `<div class="memory-card-reason">Reason: ${esc(m.rejection_reason)}</div>` : ''}
+          ${m.visual_style     ? `<div class="memory-card-meta">Visual: ${esc(m.visual_style)}</div>` : ''}
+          ${m.format           ? `<div class="memory-card-meta">Format: ${esc(m.format)}</div>` : ''}
+          ${m.angle            ? `<div class="memory-card-meta">Angle: ${esc(m.angle)}</div>` : ''}
+          ${m.performance_note ? `<div class="memory-card-reason">${esc(m.performance_note)}</div>` : ''}
           <div class="memory-card-time">${relTime(m.created_at)}</div>
         </div>`;
     }).join('');
@@ -1692,14 +1710,19 @@ const App = (() => {
       list.innerHTML = '<div class="loading-text">No angles yet — click Generate New Angles.</div>';
       return;
     }
-    list.innerHTML = angles.map(a => `
-      <div class="memory-angle-card">
-        <div class="memory-angle-body">
-          <div class="memory-angle-name">${esc(a.angle_name)}</div>
-          <div class="memory-angle-hook">${esc(a.hook || '')}</div>
-        </div>
-        <button class="memory-card-del" onclick="App.deleteAngle('${a.id}')" title="Archive">✕</button>
-      </div>`).join('');
+    list.innerHTML = angles.map(a => {
+      const hooks = Array.isArray(a.hook_examples) ? a.hook_examples : [];
+      const hookPreview = hooks.length ? esc(hooks[0]) : '';
+      return `
+        <div class="memory-angle-card">
+          <div class="memory-angle-body">
+            <div class="memory-angle-name">${esc(a.name)}</div>
+            ${a.description ? `<div class="memory-angle-hook">${esc(a.description)}</div>` : ''}
+            ${hookPreview   ? `<div class="memory-card-meta">"${hookPreview}"</div>` : ''}
+          </div>
+          <button class="memory-card-del" onclick="App.deleteAngle('${a.id}')" title="Archive">✕</button>
+        </div>`;
+    }).join('');
   }
 
   function filterMemory(sourceType) {
@@ -1759,7 +1782,7 @@ const App = (() => {
   function openAddMemoryNote() {
     const note = prompt('Enter a creative note or guideline for this brand:');
     if (!note || !note.trim() || !state.activeBrand) return;
-    api.post(`/brands/${state.activeBrand.id}/memory/manual`, { notes: note.trim() })
+    api.post(`/brands/${state.activeBrand.id}/memory/manual`, { summary: note.trim() })
       .then(() => {
         toast('Note saved to Brand Memory');
         loadMemory(state.activeBrand.id, state.memoryFilter || '');
@@ -1841,6 +1864,11 @@ const App = (() => {
       loadBrandAssets();
       toast(`${files.length} asset${files.length > 1 ? 's' : ''} uploaded`);
     } catch (e) { toast(e.message, 'error'); }
+  }
+
+  // ── Image helpers ────────────────────────────────────────────
+  function resolveAdImage(ad) {
+    return ad?.image_url || ad?.imageUrl || ad?.output_url || ad?.generated_image_url || ad?.local_path || ad?.url || '';
   }
 
   // ── Helpers ──────────────────────────────────────────────────

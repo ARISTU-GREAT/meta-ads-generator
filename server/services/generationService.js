@@ -20,7 +20,7 @@ const fs   = require('fs');
 const path = require('path');
 const { query }    = require('../db');
 const { AppError } = require('../utils/errors');
-const { GENERATED_DIR } = require('../utils/paths');
+require('../utils/paths'); // ensures upload dirs are created on startup
 const { composeCreativeStrategy } = require('./promptComposerService');
 const { getRelevantMemoriesForBrand, formatMemoryContext } = require('./brandMemoryService');
 
@@ -176,22 +176,18 @@ async function remixGenerate({
   if (!b64) throw new AppError('OpenAI returned no image data', 502);
 
   // ── 4. Persist image + DB record ──────────────────────────────────────────
-  const filename  = `${Date.now()}-${Math.random().toString(36).slice(2)}.png`;
-  const savedPath = path.join(GENERATED_DIR, filename);
-  fs.writeFileSync(savedPath, Buffer.from(b64, 'base64'));
+  // Store as data URL so images are browser-accessible on any deployment
+  // (Vercel has an ephemeral filesystem; data URLs work everywhere)
+  const imageUrl = `data:image/png;base64,${b64}`;
+  const adFormat = aspectRatio === 'portrait' ? 'story'
+                 : aspectRatio === 'landscape' ? 'landscape'
+                 : 'single_image';
 
-  const imageUrl      = `/uploads/generated/${filename}`;
-  const imageFilePath = `server/uploads/generated/${filename}`;
-  const adFormat      = aspectRatio === 'portrait' ? 'story'
-                      : aspectRatio === 'landscape' ? 'landscape'
-                      : 'single_image';
-
-  // Full creative strategy stored in metadata for debugging and future reuse
   const metadataPayload = {
     mode:          'remix',
     composer_used: composerUsed,
     instructions:  instructions || null,
-    strategy:      strategy || null,   // full structured JSON from promptComposer
+    strategy:      strategy || null,
   };
 
   const { rows } = await query(
@@ -204,7 +200,7 @@ async function remixGenerate({
       brandId,
       promptForOpenAI,
       imageUrl,
-      imageFilePath,
+      null,
       'meta',
       adFormat,
       composerUsed ? `gpt-4.1-mini + ${model}` : model,
@@ -382,12 +378,7 @@ async function remixGenerateBatch({
     const b64 = openaiResponse.data?.[0]?.b64_json;
     if (!b64) throw new AppError('OpenAI returned no image data', 502);
 
-    const filename     = `${Date.now()}-${Math.random().toString(36).slice(2)}.png`;
-    const savedPath    = path.join(GENERATED_DIR, filename);
-    fs.writeFileSync(savedPath, Buffer.from(b64, 'base64'));
-
-    const imageUrl      = `/uploads/generated/${filename}`;
-    const imageFilePath = `server/uploads/generated/${filename}`;
+    const imageUrl = `data:image/png;base64,${b64}`;
 
     const metadataPayload = {
       mode:               'remix',
@@ -409,7 +400,7 @@ async function remixGenerateBatch({
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [
-        brandId, prompt, imageUrl, imageFilePath,
+        brandId, prompt, imageUrl, null,
         'meta', adFormat,
         composerUsed ? `gpt-4.1-mini + ${model}` : model,
         JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: i + 1, composer_used: composerUsed, image_model: model, speed_mode: speedMode }),
@@ -549,11 +540,7 @@ async function remixGenerateBatchStream({
     const b64 = openaiResponse.data?.[0]?.b64_json;
     if (!b64) throw new AppError('OpenAI returned no image data', 502);
 
-    const filename     = `${Date.now()}-${Math.random().toString(36).slice(2)}.png`;
-    fs.writeFileSync(path.join(GENERATED_DIR, filename), Buffer.from(b64, 'base64'));
-
-    const imageUrl      = `/uploads/generated/${filename}`;
-    const imageFilePath = `server/uploads/generated/${filename}`;
+    const imageUrl = `data:image/png;base64,${b64}`;
 
     const metadataPayload = {
       mode:               'remix',
@@ -569,7 +556,7 @@ async function remixGenerateBatchStream({
     };
 
     const insertParams = [
-      brandId, prompt, imageUrl, imageFilePath,
+      brandId, prompt, imageUrl, null,
       'meta', adFormat,
       composerUsed ? `gpt-4.1-mini + ${model}` : model,
       JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: i + 1, composer_used: composerUsed, image_model: model, speed_mode: speedMode }),
