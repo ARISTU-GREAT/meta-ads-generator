@@ -2029,6 +2029,15 @@ body {
   background: rgba(16,185,129,0.18);
   color: #34d399;
 }
+.btn-studio-figma-blueprint {
+  border-color: rgba(245,158,11,0.35);
+  background: rgba(245,158,11,0.08);
+  color: #d97706;
+}
+.btn-studio-figma-blueprint:hover:not(:disabled) {
+  background: rgba(245,158,11,0.18);
+  color: #f59e0b;
+}
 .studio-export-hint {
   font-size: 0.72rem;
   color: var(--text-3);

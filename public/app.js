@@ -1761,6 +1761,48 @@ const App = (() => {
     }
   }
 
+  // ── Claude Design Blueprint export ──────────────────────────
+  async function exportToFigmaBlueprint() {
+    const ad = state.studio.ad;
+    if (!ad?.id) return;
+
+    const hintEl     = document.getElementById('studio-export-hint');
+    const btnEl      = document.getElementById('btn-export-figma-blueprint');
+    const fastEl     = document.getElementById('btn-export-figma');
+    const editableEl = document.getElementById('btn-export-figma-editable');
+    if (btnEl)      { btnEl.disabled = true;      btnEl.textContent = 'Designing…'; }
+    if (fastEl)     { fastEl.disabled = true; }
+    if (editableEl) { editableEl.disabled = true; }
+    if (hintEl) hintEl.textContent = 'Claude is designing your blueprint…';
+
+    try {
+      const res = await fetch(`/api/ads/${ad.id}/layout/export?mode=blueprint`, { credentials: 'include' });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.error || b.message || msg; } catch {}
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `creative-layout-${ad.id.slice(0, 8)}-blueprint.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (hintEl) hintEl.textContent = 'Blueprint downloaded — import via Figma plugin';
+    } catch (err) {
+      console.error('[exportToFigmaBlueprint] failed:', err.message);
+      if (hintEl) hintEl.textContent = 'Blueprint failed: ' + err.message;
+    } finally {
+      const figmaSvg = `<svg width="14" height="14" viewBox="0 0 38 57" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><path d="M19 28.5A9.5 9.5 0 1 1 28.5 19 9.5 9.5 0 0 1 19 28.5Z" fill="currentColor"/><path d="M9.5 57A9.5 9.5 0 0 0 19 47.5V38H9.5A9.5 9.5 0 0 0 0 47.5 9.5 9.5 0 0 0 9.5 57Z" fill="currentColor"/><path d="M0 28.5A9.5 9.5 0 0 0 9.5 38H19V19H9.5A9.5 9.5 0 0 0 0 28.5Z" fill="currentColor"/><path d="M0 9.5A9.5 9.5 0 0 0 9.5 19H19V0H9.5A9.5 9.5 0 0 0 0 9.5Z" fill="currentColor"/><path d="M19 0V19H28.5A9.5 9.5 0 0 0 28.5 0Z" fill="currentColor"/></svg>`;
+      if (btnEl)      { btnEl.disabled = false;      btnEl.innerHTML = figmaSvg + ' ◈ Blueprint (Claude)'; }
+      if (fastEl)     { fastEl.disabled = false; }
+      if (editableEl) { editableEl.disabled = false; }
+    }
+  }
+
   // ── Quick board card actions ─────────────────────────────────
   function downloadAd(adId) {
     const ad  = state.boardAds.find(a => a.id === adId);
@@ -2187,7 +2229,7 @@ const App = (() => {
 
     // Studio
     closeStudio, downloadStudioAd, approveStudioAd, deleteStudioAd, remixThisAd,
-    approveAndLearn, rejectAndLearn, exportToFigma, exportToFigmaEditable,
+    approveAndLearn, rejectAndLearn, exportToFigma, exportToFigmaEditable, exportToFigmaBlueprint,
 
     // Brand Memory
     filterMemory, analyzeAllAssets, generateNewAngles,

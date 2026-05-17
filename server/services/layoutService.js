@@ -534,4 +534,25 @@ async function getEditableLayout(adId) {
   return rows[0] || null;
 }
 
-module.exports = { buildLayoutFromStrategy, saveLayout, getLayoutByAdId, saveEditableLayout, getEditableLayout, analyzeAdLayout };
+async function saveBlueprintLayout(adId, blueprintJson) {
+  await query(
+    `UPDATE creative_layouts
+     SET blueprint_json = $2, blueprint_analyzed_at = NOW(), updated_at = NOW()
+     WHERE ad_id = $1`,
+    [adId, JSON.stringify(blueprintJson)]
+  );
+}
+
+async function getBlueprintLayout(adId) {
+  const { rows } = await query(
+    'SELECT blueprint_json, blueprint_analyzed_at FROM creative_layouts WHERE ad_id = $1',
+    [adId]
+  );
+  return rows[0] || null;
+}
+
+module.exports = {
+  buildLayoutFromStrategy, saveLayout, getLayoutByAdId,
+  saveEditableLayout, getEditableLayout, analyzeAdLayout,
+  saveBlueprintLayout, getBlueprintLayout,
+};

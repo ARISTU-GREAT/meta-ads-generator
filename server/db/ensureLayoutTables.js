@@ -15,8 +15,14 @@ const DDL = `
 
 // V2 columns — added after initial creation; idempotent
 const DDL_V2 = `
-  ALTER TABLE creative_layouts ADD COLUMN IF NOT EXISTS editable_json      JSONB;
+  ALTER TABLE creative_layouts ADD COLUMN IF NOT EXISTS editable_json        JSONB;
   ALTER TABLE creative_layouts ADD COLUMN IF NOT EXISTS editable_analyzed_at TIMESTAMPTZ;
+`;
+
+// V3 columns — Claude Design Blueprint
+const DDL_V3 = `
+  ALTER TABLE creative_layouts ADD COLUMN IF NOT EXISTS blueprint_json        JSONB;
+  ALTER TABLE creative_layouts ADD COLUMN IF NOT EXISTS blueprint_analyzed_at TIMESTAMPTZ;
 `;
 
 async function ensureLayoutTables() {
@@ -24,6 +30,7 @@ async function ensureLayoutTables() {
   try {
     await client.query(DDL);
     await client.query(DDL_V2);
+    await client.query(DDL_V3);
     console.log('[ensureLayoutTables] ready.');
   } catch (err) {
     console.error('[ensureLayoutTables] Migration failed:', err.message);
