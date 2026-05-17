@@ -30,8 +30,8 @@ const Auth = (() => {
   async function check() {
     try {
       const [statusRes, meRes] = await Promise.all([
-        fetch('/api/auth/status'),
-        fetch('/api/auth/me'),
+        fetch('/api/auth/status', { credentials: 'include' }),
+        fetch('/api/auth/me',     { credentials: 'include' }),
       ]);
       const status = await statusRes.json();
       const me     = await meRes.json();
@@ -71,9 +71,10 @@ const Auth = (() => {
 
     try {
       const res  = await fetch('/api/auth/login', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email, password }),
+        method:      'POST',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Login failed');
@@ -114,9 +115,10 @@ const Auth = (() => {
 
     try {
       const res  = await fetch('/api/auth/signup', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email, password }),
+        method:      'POST',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Signup failed');
@@ -132,7 +134,7 @@ const Auth = (() => {
   }
 
   async function logout() {
-    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
     showLogin();
     document.getElementById('login-password').value = '';
     // Re-check status in case tabs need to show
@@ -204,39 +206,51 @@ const App = (() => {
   const BRAND_KIT_LABELS   = { name: 'Brand Name', description: 'Description', primary_color: 'Primary Color', secondary_color: 'Secondary Color', target_audience: 'Target Audience', brand_voice: 'Brand Voice' };
 
   // ── API Helpers ──────────────────────────────────────────────
+  async function _handleApiResponse(r) {
+    if (r.status === 401) {
+      // Session expired — verify with /me before showing login to avoid false positives
+      const me = await fetch('/api/auth/me', { credentials: 'include' }).then(x => x.json()).catch(() => ({}));
+      if (!me.authenticated) {
+        Auth.showMode('login');
+        document.getElementById('login-screen')?.classList.remove('hidden');
+        document.getElementById('app-shell')?.classList.add('hidden');
+        throw new Error('Session expired. Please sign in again.');
+      }
+    }
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    return r.json();
+  }
+
   const api = {
     async get(path) {
-      const r = await fetch(`/api${path}`);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-      return r.json();
+      const r = await fetch(`/api${path}`, { credentials: 'include' });
+      return _handleApiResponse(r);
     },
     async post(path, body) {
       const r = await fetch(`/api${path}`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-      return r.json();
+      return _handleApiResponse(r);
     },
     async put(path, body) {
       const r = await fetch(`/api${path}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-      return r.json();
+      return _handleApiResponse(r);
     },
     async delete(path) {
-      const r = await fetch(`/api${path}`, { method: 'DELETE' });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-      return r.json();
+      const r = await fetch(`/api${path}`, { method: 'DELETE', credentials: 'include' });
+      return _handleApiResponse(r);
     },
     async upload(path, formData) {
-      const r = await fetch(`/api${path}`, { method: 'POST', body: formData });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
-      return r.json();
+      const r = await fetch(`/api${path}`, { method: 'POST', credentials: 'include', body: formData });
+      return _handleApiResponse(r);
     },
   };
 
@@ -1079,8 +1093,17 @@ const App = (() => {
 
   // SSE stream reader — POST multipart, read response as text stream
   async function streamGenerate(path, formData, onEvent) {
-    const response = await fetch(`/api${path}`, { method: 'POST', body: formData });
+    const response = await fetch(`/api${path}`, { method: 'POST', credentials: 'include', body: formData });
     if (!response.ok) {
+      if (response.status === 401) {
+        const me = await fetch('/api/auth/me', { credentials: 'include' }).then(x => x.json()).catch(() => ({}));
+        if (!me.authenticated) {
+          Auth.showMode('login');
+          document.getElementById('login-screen')?.classList.remove('hidden');
+          document.getElementById('app-shell')?.classList.add('hidden');
+          throw new Error('Session expired. Please sign in again.');
+        }
+      }
       const err = await response.json().catch(() => ({}));
       throw new Error(err.error || response.statusText);
     }

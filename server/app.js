@@ -18,6 +18,9 @@ const logger = require('./utils/logger');
 
 const app = express();
 
+// Trust Vercel/reverse-proxy so secure cookies work behind HTTPS termination
+app.set('trust proxy', 1);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(logger.requestLogger);
@@ -31,7 +34,7 @@ app.use(session({
   cookie: {
     httpOnly: true,
     secure:   isProd,
-    sameSite: 'lax',
+    sameSite: isProd ? 'none' : 'lax',
     maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
   },
 }));

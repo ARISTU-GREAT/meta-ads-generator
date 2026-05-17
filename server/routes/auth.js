@@ -46,7 +46,10 @@ router.post('/signup', asyncHandler(async (req, res) => {
   const user = rows[0];
 
   sessionFor(req, user);
-  res.status(201).json({ success: true, email: user.email, role: user.role });
+  req.session.save(err => {
+    if (err) return res.status(500).json({ success: false, error: 'Session save failed' });
+    res.status(201).json({ success: true, email: user.email, role: user.role });
+  });
 }));
 
 // ── POST /api/auth/login ─────────────────────────────────────
@@ -66,7 +69,10 @@ router.post('/login', asyncHandler(async (req, res) => {
   if (!user || !matches) throw new AppError('Invalid credentials', 401);
 
   sessionFor(req, user);
-  res.json({ success: true, email: user.email, role: user.role });
+  req.session.save(err => {
+    if (err) return res.status(500).json({ success: false, error: 'Session save failed' });
+    res.json({ success: true, email: user.email, role: user.role });
+  });
 }));
 
 // ── POST /api/auth/logout ────────────────────────────────────
@@ -79,6 +85,9 @@ router.post('/logout', (req, res) => {
 
 // ── GET /api/auth/me ─────────────────────────────────────────
 router.get('/me', asyncHandler(async (req, res) => {
+  console.log('[auth/me] session id:', req.session?.id ? 'present' : 'absent',
+              '| user_id:', req.session?.user_id ? 'present' : 'absent',
+              '| role:', req.session?.role || 'none');
   if (!req.session?.user_id) {
     return res.json({ authenticated: false });
   }
