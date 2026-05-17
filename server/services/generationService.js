@@ -20,6 +20,7 @@ const fs   = require('fs');
 const path = require('path');
 const { query }    = require('../db');
 const { AppError } = require('../utils/errors');
+const { GENERATED_DIR } = require('../utils/paths');
 const { composeCreativeStrategy } = require('./promptComposerService');
 
 // Lazy-init — safe to load without OPENAI_API_KEY at startup
@@ -31,9 +32,6 @@ function getOpenAI() {
   if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   return _openai;
 }
-
-const GENERATED_DIR = path.join(__dirname, '../uploads/generated');
-if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
 
 const SIZE_MAP = {
   square:    '1024x1024',

@@ -5,12 +5,9 @@ const path    = require('path');
 const fs      = require('fs');
 const { asyncHandler, AppError }   = require('../utils/errors');
 const { isBrandSetupComplete }     = require('../utils/brandKit');
+const { TEMP_DIR }                 = require('../utils/paths');
 const { query }                    = require('../db');
 const generationService            = require('../services/generationService');
-
-// Temp dir for images during processing — cleaned up after each request
-const TEMP_DIR = path.join(__dirname, '../uploads/temp');
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 const upload = multer({
   dest: TEMP_DIR,

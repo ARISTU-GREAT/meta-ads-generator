@@ -9,8 +9,7 @@ const { asyncHandler, AppError } = require('../utils/errors');
 const { isBrandSetupComplete } = require('../utils/brandKit');
 const { generateConceptPlan, formatsData } = require('../services/conceptPlanService');
 
-const TEMP_DIR = path.join(__dirname, '../uploads/temp');
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
+const { TEMP_DIR } = require('../utils/paths');
 
 const upload = multer({
   dest: TEMP_DIR,

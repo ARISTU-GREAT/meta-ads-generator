@@ -1,19 +1,18 @@
 const multer = require('multer');
 const path   = require('path');
 const fs     = require('fs');
-const { query }    = require('../db');
-const { AppError } = require('../utils/errors');
+const { query }      = require('../db');
+const { AppError }   = require('../utils/errors');
+const { UPLOAD_BASE } = require('../utils/paths');
 
-const UPLOAD_DIR      = path.join(__dirname, '../uploads');
-const ALLOWED_TYPES   = ['image/jpeg', 'image/png', 'image/webp'];
-const MAX_FILE_SIZE   = 10 * 1024 * 1024; // 10 MB
-
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const UPLOAD_DIR    = UPLOAD_BASE;
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = path.join(UPLOAD_DIR, req.body.brand_id || 'general');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
   filename: (_req, file, cb) => {
