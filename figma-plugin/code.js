@@ -77,10 +77,15 @@ async function handleImport(msg) {
     figma.ui.postMessage({ type: 'error', message: 'JSON must be an object', stack: '' });
     return;
   }
+  // Route to the correct importer based on schema
+  if (layout.schema === 'adflow-editable-design') {
+    await importEditableDesign(layout, importImages);
+    return;
+  }
   if (layout.schema && layout.schema !== 'creative-layout') {
     figma.ui.postMessage({
       type: 'error',
-      message: 'Expected schema "creative-layout", got "' + layout.schema + '"',
+      message: 'Expected schema "creative-layout" or "adflow-editable-design", got "' + layout.schema + '"',
       stack: ''
     });
     return;
@@ -132,11 +137,15 @@ function safeNum(v, fallback) {
   return isFinite(n) ? n : fallback;
 }
 
-// Handles V1/V2 fills array + V3 blueprint background_color string
+// Handles all fill formats: background_color (V3), fill (reconstruction), fills[] (V1/V2)
 function parseFills(layer) {
   // V3 blueprint: flat background_color field
   if (layer.background_color && typeof layer.background_color === 'string') {
     return [{ type: 'SOLID', color: hexToRGB(layer.background_color) }];
+  }
+  // Reconstruction schema: flat fill field
+  if (layer.fill && typeof layer.fill === 'string') {
+    return [{ type: 'SOLID', color: hexToRGB(layer.fill) }];
   }
   // V1/V2: fills array of strings or objects
   var fills = layer.fills;
@@ -310,7 +319,8 @@ async function makeImageFrame(layer, w, h, importImages, counters) {
 // ── Main import ───────────────────────────────────────────────────────────────
 
 async function importCreative(layout, importImages, includeLockedRef) {
-  var isBlueprint = (layout.export_mode === 'blueprint' || layout.version === '3.0');
+  var isBlueprint      = (layout.export_mode === 'blueprint' || layout.version === '3.0');
+  var isReconstruction = (layout.export_mode === 'reconstruction' || layout.version === '2.1');
   var layers = resolveLayers(layout);
   var canvas = resolveCanvas(layout);
   var W      = Math.max(1, canvas.width);
@@ -323,19 +333,18 @@ async function importCreative(layout, importImages, includeLockedRef) {
   figma.ui.postMessage({ type: 'progress', message: 'Loading fonts…' });
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
   var loadedFonts = { Regular: true };
-  // Pre-load Bold for blueprint mode (may have font_weight 700)
-  if (isBlueprint) {
+  // Pre-load Bold for blueprint and reconstruction modes
+  if (isBlueprint || isReconstruction) {
     try { await figma.loadFontAsync({ family: 'Inter', style: 'Bold' }); loadedFonts['Bold'] = true; } catch (_) {}
   }
 
   figma.ui.postMessage({ type: 'progress', message: 'Building frame (' + layers.length + ' layers)…' });
 
   var brandName  = meta.brand_name  || '';
-  var layoutType = meta.layout_type || (isBlueprint ? 'Blueprint' : '');
   var exportMode = layout.export_mode || 'fast';
-  var frameSuffix = isBlueprint ? ' [Blueprint]' : '';
-  var frameName  = (brandName || layoutType)
-    ? [brandName, layoutType].filter(Boolean).join(' — ') + frameSuffix
+  var frameSuffix = isBlueprint ? ' [Blueprint]' : (isReconstruction ? ' [Editable]' : '');
+  var frameName  = brandName
+    ? brandName + frameSuffix
     : 'AdFlow Creative' + frameSuffix;
 
   var frame = figma.createFrame();
@@ -386,6 +395,29 @@ async function importCreative(layout, importImages, includeLockedRef) {
         imgF.name = String(layer.name || 'Image');
         imgF.x = x; imgF.y = y;
         node = imgF;
+
+      } else if (type === 'IMAGE_REGION') {
+        // Detected image region from vision reconstruction — placeholder frame
+        var regionFrame = figma.createFrame();
+        regionFrame.name = String(layer.name || 'Image Region');
+        regionFrame.x = x; regionFrame.y = y;
+        regionFrame.resize(w, h);
+        regionFrame.clipsContent = true;
+        regionFrame.fills = [{ type: 'SOLID', color: { r: 0.80, g: 0.82, b: 0.86 } }];
+        // Label showing role
+        try {
+          var regionLabel = figma.createText();
+          regionLabel.fontName = { family: 'Inter', style: 'Regular' };
+          regionLabel.fontSize = Math.max(11, Math.round(Math.min(w, h) * 0.07));
+          regionLabel.fills = [{ type: 'SOLID', color: { r: 0.3, g: 0.33, b: 0.4 } }];
+          var regionRole = String(layer.role || layer.name || 'image').toUpperCase();
+          regionLabel.characters = '◈  ' + regionRole;
+          regionLabel.textAlignHorizontal = 'CENTER';
+          regionLabel.x = Math.max(0, Math.round((w - regionLabel.width) / 2));
+          regionLabel.y = Math.max(0, Math.round((h - regionLabel.height) / 2));
+          regionFrame.appendChild(regionLabel);
+        } catch (_) {}
+        node = regionFrame;
 
       } else if (type === 'TEXT') {
         var fontStyleT = getTextFontStyle(layer);
@@ -578,7 +610,7 @@ async function importCreative(layout, importImages, includeLockedRef) {
       refFrame.resize(W, H);
       refFrame.clipsContent = false;
       refFrame.fills = [refFill];
-      refFrame.opacity = 0.3;
+      refFrame.opacity = 0.25;
       refFrame.locked  = true;
       frame.insertChild(0, refFrame);
       console.log('[AdFlow] locked reference layer added');
@@ -589,7 +621,9 @@ async function importCreative(layout, importImages, includeLockedRef) {
   figma.viewport.scrollAndZoomIntoView([frame]);
   figma.currentPage.selection = [frame];
 
-  var modeLabel = isBlueprint ? 'Blueprint' : (layout.export_mode === 'editable' ? 'Editable' : 'Layout');
+  var modeLabel = isBlueprint      ? 'Blueprint'
+               : isReconstruction ? 'Editable Reconstruction'
+               : 'Layout';
   var summary = modeLabel + ' imported: "' + frameName + '" — ' + built + ' layer' + (built !== 1 ? 's' : '');
   if (importImages && (counters.fetched || counters.failed)) {
     summary += ' (' + counters.fetched + ' image' + (counters.fetched !== 1 ? 's' : '') + ' loaded';
@@ -600,4 +634,218 @@ async function importCreative(layout, importImages, includeLockedRef) {
   figma.ui.postMessage({ type: 'done', message: summary });
   console.log('[AdFlow] import complete | built: ' + built + ' | images: ' +
               counters.fetched + '/' + (counters.fetched + counters.failed) + ' | skipped: ' + skipped);
+}
+
+// ── adflow-editable-design importer ──────────────────────────────────────────
+// Handles schema: "adflow-editable-design" v1.0
+// Layer types (lowercase): rectangle | text | image | button | ellipse | line | icon | group
+
+async function importEditableDesign(layout, importImages) {
+  var canvas = layout.canvas || {};
+  var W = Math.max(1, safeNum(canvas.width,  1080));
+  var H = Math.max(1, safeNum(canvas.height, 1080));
+  var meta = layout.meta || {};
+  var brandName = meta.brand_name || '';
+
+  var layers = Array.isArray(layout.layers) ? layout.layers.slice() : [];
+  // Sort by z ascending (bottom → top)
+  layers.sort(function(a, b) { return safeNum(a.z, 0) - safeNum(b.z, 0); });
+
+  console.log('[AdFlow/v2] adflow-editable-design | canvas: ' + W + 'x' + H + ' | layers: ' + layers.length);
+  figma.ui.postMessage({ type: 'progress', message: 'Loading fonts…' });
+
+  await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+  await figma.loadFontAsync({ family: 'Inter', style: 'Bold' });
+  var loadedFonts = { 'Inter_Regular': true, 'Inter_Bold': true };
+
+  var frameName = brandName ? brandName + ' [Editable Design]' : 'AdFlow Editable Design';
+  var frame = figma.createFrame();
+  frame.name = frameName;
+  frame.resize(W, H);
+  frame.clipsContent = true;
+  frame.fills = canvas.background
+    ? [{ type: 'SOLID', color: hexToRGB(canvas.background) }]
+    : [];
+
+  figma.ui.postMessage({ type: 'progress', message: 'Building ' + layers.length + ' layers…' });
+
+  var built = 0;
+  var skipped = 0;
+  var imagesFetched = 0;
+  var imagesFailed  = 0;
+
+  for (var i = 0; i < layers.length; i++) {
+    var layer = layers[i];
+    var type  = String(layer.type || '').toLowerCase();
+    var x     = safeNum(layer.x, 0);
+    var y     = safeNum(layer.y, 0);
+    var w     = Math.max(1, safeNum(layer.width,  100));
+    var h     = Math.max(1, safeNum(layer.height, 40));
+    var name  = String(layer.name || type);
+    var node  = null;
+
+    try {
+      if (type === 'rectangle') {
+        var r = figma.createRectangle();
+        r.name = name;
+        r.x = x; r.y = y;
+        r.resize(w, h);
+        r.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || '#888888') }];
+        r.cornerRadius = Math.max(0, safeNum(layer.borderRadius, 0));
+        if (layer.opacity != null) r.opacity = Math.max(0, Math.min(1, safeNum(layer.opacity, 1)));
+        node = r;
+
+      } else if (type === 'ellipse') {
+        var el = figma.createEllipse();
+        el.name = name;
+        el.x = x; el.y = y;
+        el.resize(w, h);
+        el.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || '#888888') }];
+        if (layer.opacity != null) el.opacity = Math.max(0, Math.min(1, safeNum(layer.opacity, 1)));
+        node = el;
+
+      } else if (type === 'line') {
+        var ln = figma.createRectangle();
+        ln.name = name;
+        ln.x = x; ln.y = y;
+        var lh = Math.max(1, safeNum(layer.strokeWeight, 2));
+        ln.resize(w, lh);
+        ln.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || layer.color || '#888888') }];
+        node = ln;
+
+      } else if (type === 'text') {
+        var fontW  = safeNum(layer.fontWeight, 400) >= 600 ? 'Bold' : 'Regular';
+        var fontKey = 'Inter_' + fontW;
+        if (!loadedFonts[fontKey]) {
+          try { await figma.loadFontAsync({ family: 'Inter', style: fontW }); } catch (_) { fontW = 'Regular'; }
+          loadedFonts[fontKey] = true;
+        }
+        var txt = figma.createText();
+        txt.name = name;
+        txt.fontName = { family: 'Inter', style: fontW };
+        txt.fontSize = Math.max(1, safeNum(layer.fontSize, 32));
+        txt.characters = String(layer.text || '');
+        txt.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || '#000000') }];
+        var alignMap2 = { left: 'LEFT', center: 'CENTER', right: 'RIGHT' };
+        try { txt.textAlignHorizontal = alignMap2[String(layer.align || 'left').toLowerCase()] || 'LEFT'; } catch (_) {}
+        try { txt.textAutoResize = 'NONE'; txt.resize(w, h); } catch (_) {}
+        txt.x = x; txt.y = y;
+        node = txt;
+
+      } else if (type === 'button') {
+        // FRAME → RECTANGLE background + TEXT label
+        var btnF = figma.createFrame();
+        btnF.name = name;
+        btnF.x = x; btnF.y = y;
+        btnF.resize(w, h);
+        btnF.clipsContent = true;
+        btnF.cornerRadius = Math.max(0, safeNum(layer.borderRadius, 8));
+        btnF.fills = [];
+
+        var btnBg = figma.createRectangle();
+        btnBg.name = 'Button Background';
+        btnBg.x = 0; btnBg.y = 0;
+        btnBg.resize(w, h);
+        btnBg.cornerRadius = Math.max(0, safeNum(layer.borderRadius, 8));
+        btnBg.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || '#5b6af0') }];
+        btnF.appendChild(btnBg);
+
+        var btnText = String(layer.text || '');
+        if (btnText) {
+          var btnW2 = safeNum(layer.fontWeight, 700) >= 600 ? 'Bold' : 'Regular';
+          var btnKey = 'Inter_' + btnW2;
+          if (!loadedFonts[btnKey]) {
+            try { await figma.loadFontAsync({ family: 'Inter', style: btnW2 }); } catch (_) { btnW2 = 'Regular'; }
+            loadedFonts[btnKey] = true;
+          }
+          var btnLbl2 = figma.createText();
+          btnLbl2.name = 'Button Label';
+          btnLbl2.fontName = { family: 'Inter', style: btnW2 };
+          btnLbl2.fontSize = Math.max(1, safeNum(layer.fontSize, 28));
+          btnLbl2.characters = btnText;
+          btnLbl2.fills = [{ type: 'SOLID', color: hexToRGB(layer.textFill || '#ffffff') }];
+          try { btnLbl2.textAlignHorizontal = 'CENTER'; } catch (_) {}
+          try {
+            btnLbl2.textAutoResize = 'WIDTH_AND_HEIGHT';
+            btnLbl2.x = Math.max(0, Math.round((w - btnLbl2.width)  / 2));
+            btnLbl2.y = Math.max(0, Math.round((h - btnLbl2.height) / 2));
+          } catch (_) { btnLbl2.x = 0; btnLbl2.y = 0; }
+          btnF.appendChild(btnLbl2);
+        }
+        node = btnF;
+
+      } else if (type === 'image' || type === 'icon') {
+        var imgF2 = figma.createFrame();
+        imgF2.name = name;
+        imgF2.x = x; imgF2.y = y;
+        imgF2.resize(w, h);
+        imgF2.clipsContent = true;
+        imgF2.fills = [{ type: 'SOLID', color: { r: 0.82, g: 0.84, b: 0.88 } }];
+
+        var imgUrl = layer.imageUrl || null;
+        var imgLoaded = false;
+        if (importImages && imgUrl && typeof imgUrl === 'string') {
+          figma.ui.postMessage({ type: 'progress', message: 'Fetching: ' + name + '…' });
+          var imgFill2 = await fetchImageFill(imgUrl);
+          if (imgFill2) {
+            imgF2.fills = [imgFill2];
+            imgLoaded = true;
+            imagesFetched++;
+          } else {
+            imagesFailed++;
+          }
+        }
+        if (!imgLoaded) {
+          try {
+            var placeLabel = figma.createText();
+            placeLabel.fontName = { family: 'Inter', style: 'Regular' };
+            placeLabel.fontSize = Math.max(11, Math.round(Math.min(w, h) * 0.07));
+            placeLabel.fills = [{ type: 'SOLID', color: { r: 0.3, g: 0.33, b: 0.4 } }];
+            placeLabel.characters = '◈  ' + name;
+            placeLabel.textAlignHorizontal = 'CENTER';
+            placeLabel.x = Math.max(0, Math.round((w - placeLabel.width)  / 2));
+            placeLabel.y = Math.max(0, Math.round((h - placeLabel.height) / 2));
+            imgF2.appendChild(placeLabel);
+          } catch (_) {}
+        }
+        node = imgF2;
+
+      } else if (type === 'group') {
+        var gf = figma.createFrame();
+        gf.name = name;
+        gf.x = x; gf.y = y;
+        gf.resize(w, h);
+        gf.fills = [];
+        gf.clipsContent = false;
+        node = gf;
+
+      } else {
+        console.warn('[AdFlow/v2] unsupported type "' + type + '" — skipping "' + name + '"');
+        skipped++;
+        continue;
+      }
+    } catch (layerErr) {
+      console.error('[AdFlow/v2] layer "' + name + '" error: ' + layerErr.message);
+      skipped++;
+      continue;
+    }
+
+    if (node) {
+      if (node.type !== 'TEXT') { node.x = x; node.y = y; }
+      try { frame.appendChild(node); built++; } catch (_) { skipped++; }
+    }
+  }
+
+  figma.currentPage.appendChild(frame);
+  figma.viewport.scrollAndZoomIntoView([frame]);
+  figma.currentPage.selection = [frame];
+
+  var summary2 = 'Editable Design imported: "' + frameName + '" — ' + built + ' layer' + (built !== 1 ? 's' : '');
+  if (importImages && (imagesFetched || imagesFailed)) {
+    summary2 += ' (' + imagesFetched + ' image' + (imagesFetched !== 1 ? 's' : '') + ' loaded';
+    if (imagesFailed > 0) summary2 += ', ' + imagesFailed + ' failed';
+    summary2 += ')';
+  }
+  figma.ui.postMessage({ type: 'done', message: summary2 });
+  console.log('[AdFlow/v2] done | built: ' + built + ' | skipped: ' + skipped);
 }

@@ -14,8 +14,9 @@ const generateRouter   = require('./routes/generate');
 const campaignsRouter  = require('./routes/campaigns');
 const conceptsRouter   = require('./routes/concepts');
 const authRouter       = require('./routes/auth');
-const aiRouter         = require('./routes/ai');
-const { requireAuth }  = require('./middleware/auth');
+const aiRouter              = require('./routes/ai');
+const editableDesignsRouter = require('./routes/editableDesigns');
+const { requireAuth }       = require('./middleware/auth');
 const { errorHandler, notFound } = require('./utils/errors');
 const { UPLOAD_BASE }  = require('./utils/paths');
 const logger = require('./utils/logger');
@@ -51,7 +52,29 @@ app.use(session({
 // Favicon — prevent 404 or SPA fallback for browser automatic requests
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 
-// Public image endpoint — serves ad image bytes without session auth so
+// Public asset image endpoint — serves brand asset bytes by UUID.
+// Used by Figma plugin (no session cookies) and editable design JSON image layers.
+// Security: asset UUID is 128-bit random; guessing is not practical.
+app.get('/api/assets/:id/image', (req, res, next) => {
+  const { pool: dbPool } = require('./db');
+  dbPool.query('SELECT file_url FROM brand_assets WHERE id = $1', [req.params.id])
+    .then(({ rows }) => {
+      if (!rows.length || !rows[0].file_url) return res.status(404).json({ error: 'Asset not found' });
+      const dataUrl = rows[0].file_url;
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/s);
+      if (!match) return res.status(500).json({ error: 'Unsupported image format' });
+      const mimeType = match[1];
+      const buf = Buffer.from(match[2], 'base64');
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Length', buf.length);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.send(buf);
+    })
+    .catch(next);
+});
+
+// Public ad image endpoint — serves ad image bytes without session auth so
 // the Figma plugin (which cannot send cookies) can fetch the image.
 // Security: ad UUID is 128-bit random; guessing is not practical.
 app.get('/api/ads/:id/image', (req, res, next) => {
@@ -107,8 +130,9 @@ app.use('/api/jobs',      jobsRouter);
 app.use('/api/generate',  generateRouter);
 app.use('/api/campaigns', campaignsRouter);
 app.use('/api/concepts',  conceptsRouter);
-app.use('/api/ai',        aiRouter);
-app.use('/api/ads/:id/layout', layoutsRouter);
+app.use('/api/ai',               aiRouter);
+app.use('/api/editable-designs', editableDesignsRouter);
+app.use('/api/ads/:id/layout',   layoutsRouter);
 
 // SPA fallback — only for non-API, non-asset routes
 app.get('*', (req, res, next) => {

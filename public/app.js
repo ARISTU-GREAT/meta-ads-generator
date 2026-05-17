@@ -222,6 +222,7 @@ const App = (() => {
       ad:     null,
       adData: null,
     },
+    genMode: 'image',  // 'image' | 'editable'
     memoryFilter: '',
   };
 
@@ -229,16 +230,6 @@ const App = (() => {
   const BRAND_KIT_REQUIRED = ['name', 'description', 'primary_color', 'secondary_color', 'target_audience', 'brand_voice'];
   const BRAND_KIT_LABELS   = { name: 'Brand Name', description: 'Description', primary_color: 'Primary Color', secondary_color: 'Secondary Color', target_audience: 'Target Audience', brand_voice: 'Brand Voice' };
 
-  // ── Perf utilities ────────────────────────────────────────────
-  const _perf = {
-    _marks: {},
-    start(label) { this._marks[label] = performance.now(); },
-    end(label) {
-      const t = this._marks[label];
-      if (t != null) console.log(`[perf] ${label}: ${(performance.now() - t).toFixed(1)}ms`);
-      delete this._marks[label];
-    },
-  };
 
   function debounce(fn, ms) {
     let t;
@@ -846,9 +837,15 @@ const App = (() => {
     card.className = 'board-card';
     card.dataset.adId = ad.id;
     const imgSrc = resolveAdImage(ad);
+    const isEditableDesign = !ad.image_url && metadata.source_mode === 'layout_first';
+    const previewColor     = metadata.preview_color || '#1a1a2e';
     card.innerHTML = `
       <div class="board-card-img-wrap">
-        ${imgSrc ? `<img src="${imgSrc}" alt="Ad" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div class="board-card-img-fail hidden">Preview unavailable</div>` : '<div class="board-card-img-fail">No image</div>'}
+        ${imgSrc
+          ? `<img src="${imgSrc}" alt="Ad" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div class="board-card-img-fail hidden">Preview unavailable</div>`
+          : isEditableDesign
+            ? `<div class="board-card-editable" style="background:${esc(previewColor)};"><span>✏️</span><span>Editable Design</span></div>`
+            : '<div class="board-card-img-fail">No image</div>'}
         <div class="board-card-overlay">
           <button class="board-card-action" onclick="event.stopPropagation();App.downloadAd('${ad.id}')">↓</button>
           <button class="board-card-action" onclick="event.stopPropagation();App.approveAd('${ad.id}')">✓</button>
@@ -1212,8 +1209,180 @@ const App = (() => {
     if (el) el.textContent = `Generate All (~${total} ads)`;
   }
 
+  // ── Generation Mode Toggle ────────────────────────────────────
+
+  function setGenMode(mode) {
+    state.genMode = mode === 'editable' ? 'editable' : 'image';
+    const imgBtn = document.getElementById('gen-mode-image');
+    const editBtn = document.getElementById('gen-mode-editable');
+    if (imgBtn)  imgBtn.classList.toggle('active',  state.genMode === 'image');
+    if (editBtn) editBtn.classList.toggle('active', state.genMode === 'editable');
+    // Swap generate button handler label
+    const label = document.getElementById('btn-remix-label');
+    if (label) label.textContent = state.genMode === 'editable' ? 'Generate Editable Design' : 'Generate';
+  }
+
+  // ── Editable Design Generation ────────────────────────────────
+
+  async function generateEditableDesign() {
+    if (!state.activeBrand)    return toast('Select a brand first', 'error');
+    if (!state.activeCampaign) return toast('Create or select a campaign first', 'error');
+
+    const btn   = document.getElementById('btn-remix-generate');
+    const label = document.getElementById('btn-remix-label');
+    if (btn) btn.disabled = true;
+    if (label) label.textContent = 'Generating design…';
+
+    const instructions = document.getElementById('remix-instructions')?.value?.trim() || '';
+
+    // Resolve concept strategy — use parsed plan if available
+    let strategyObj = null;
+    if (state.concepts.plan && Array.isArray(state.concepts.plan) && state.concepts.plan.length) {
+      strategyObj = state.concepts.plan[0].strategy || null;
+    }
+
+    const payload = {
+      brand_id:         state.activeBrand.id,
+      campaign_id:      state.activeCampaign.id,
+      aspect_ratio:     state.concepts.aspectRatio || state.remix.aspectRatio || 'square',
+      instructions,
+      strategy:         strategyObj,
+      product_asset_id: state.concepts.productAssetId || state.remix.productAssetId || null,
+    };
+
+    try {
+      const res = await fetchApi('/api/editable-designs/generate', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      if (!res.success) throw new Error(res.error || 'Generation failed');
+
+      const { id: adId, layout } = res.data;
+      toast('Editable design created — opening studio…', 'success');
+
+      // Add a synthetic ad record to the board so it shows up
+      const syntheticAd = {
+        id:         adId,
+        image_url:  null,
+        status:     'draft',
+        created_at: new Date().toISOString(),
+        metadata:   { source_mode: 'layout_first', preview_color: layout.canvas.background },
+      };
+      state.boardAds     = [syntheticAd, ...state.boardAds];
+      state.boardFiltered = [syntheticAd, ...state.boardFiltered];
+      renderBoardCards(state.boardFiltered);
+
+      // Open studio with the editable design
+      openStudio(syntheticAd);
+    } catch (err) {
+      console.error('[generateEditableDesign]', err.message);
+      toast('Editable design failed: ' + err.message, 'error');
+    } finally {
+      if (btn)   btn.disabled = false;
+      if (label) label.textContent = 'Generate Editable Design';
+    }
+  }
+
+  // ── HTML/CSS Canvas Renderer for Editable Design ──────────────
+
+  function _loadGoogleFont(family) {
+    const id = 'gfont-' + family.replace(/\s+/g, '-').toLowerCase();
+    if (document.getElementById(id)) return;
+    const link = document.createElement('link');
+    link.id   = id;
+    link.rel  = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(family) + ':wght@400;700&display=swap';
+    document.head.appendChild(link);
+  }
+
+  function _esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderEditableDesignPreview(layoutJson, containerEl) {
+    if (!layoutJson || !containerEl) return;
+    const { canvas, layers } = layoutJson;
+    const W = canvas.width  || 1080;
+    const H = canvas.height || 1080;
+
+    const containerW = containerEl.offsetWidth || 400;
+    const scale = Math.min(1, containerW / W);
+
+    // Load fonts
+    (layers || []).forEach(l => {
+      if (l.fontFamily && l.fontFamily !== 'Inter') _loadGoogleFont(l.fontFamily);
+    });
+
+    // Sort layers by z
+    const sorted = (layers || []).slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+
+    let html = `<div style="position:relative;width:${W}px;height:${H}px;overflow:hidden;background:${_esc(canvas.background || '#fff')};">`;
+
+    sorted.forEach(layer => {
+      const x = layer.x || 0;
+      const y = layer.y || 0;
+      const w = layer.width  || 100;
+      const h = layer.height || 40;
+      const op = layer.opacity != null ? layer.opacity : 1;
+      const base = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;opacity:${op};`;
+
+      const type = (layer.type || '').toLowerCase();
+
+      if (type === 'rectangle') {
+        const r = layer.borderRadius || 0;
+        html += `<div style="${base}background:${_esc(layer.fill || '#888')};border-radius:${r}px;"></div>`;
+
+      } else if (type === 'ellipse') {
+        html += `<div style="${base}background:${_esc(layer.fill || '#888')};border-radius:50%;"></div>`;
+
+      } else if (type === 'line') {
+        const lh = layer.strokeWeight || 2;
+        html += `<div style="${base}height:${lh}px;background:${_esc(layer.fill || '#888')};"></div>`;
+
+      } else if (type === 'text') {
+        const ff  = layer.fontFamily || 'Inter';
+        const fs  = layer.fontSize   || 32;
+        const fw  = layer.fontWeight || 400;
+        const lh  = layer.lineHeight || 1.2;
+        const col = layer.fill       || '#000';
+        const al  = layer.align      || 'left';
+        const textStyle = `${base}font-family:'${_esc(ff)}',Inter,sans-serif;font-size:${fs}px;font-weight:${fw};line-height:${lh};color:${_esc(col)};text-align:${al};overflow:hidden;word-break:break-word;`;
+        html += `<div style="${textStyle}">${_esc(layer.text || '')}</div>`;
+
+      } else if (type === 'button') {
+        const ff  = layer.fontFamily || 'Inter';
+        const fs  = layer.fontSize   || 28;
+        const fw  = layer.fontWeight || 700;
+        const r   = layer.borderRadius || 8;
+        const bg  = layer.fill     || '#5b6af0';
+        const tc  = layer.textFill || '#fff';
+        const btnStyle = `${base}background:${_esc(bg)};border-radius:${r}px;display:flex;align-items:center;justify-content:center;font-family:'${_esc(ff)}',Inter,sans-serif;font-size:${fs}px;font-weight:${fw};color:${_esc(tc)};cursor:default;`;
+        html += `<div style="${btnStyle}">${_esc(layer.text || '')}</div>`;
+
+      } else if (type === 'image') {
+        if (layer.imageUrl) {
+          const fit = layer.objectFit || 'contain';
+          html += `<img src="${_esc(layer.imageUrl)}" style="${base}object-fit:${fit};" onerror="this.style.background='#ccc';" />`;
+        } else {
+          html += `<div style="${base}background:#ccc;display:flex;align-items:center;justify-content:center;color:#888;font-size:12px;">${_esc(layer.name || 'Image')}</div>`;
+        }
+      }
+    });
+
+    html += '</div>';
+
+    containerEl.innerHTML =
+      `<div style="width:${containerW}px;height:${Math.round(H * scale)}px;overflow:hidden;position:relative;">` +
+      `<div style="transform:scale(${scale.toFixed(4)});transform-origin:top left;position:absolute;">` +
+      html + '</div></div>';
+  }
+
   // ── Remix Generation (SSE Streaming) ─────────────────────────
   async function triggerRemixGenerate() {
+    // Dispatch to editable design generator if mode is 'editable'
+    if (state.genMode === 'editable') return generateEditableDesign();
+
     if (!state.activeBrand)    return toast('Select a brand first', 'error');
     if (!state.activeCampaign) return toast('Create or select a campaign first', 'error');
     if (!state.remix.referenceFile && !state.remix.referenceAssetId)
@@ -1549,21 +1718,46 @@ const App = (() => {
     const meta = safeJSON(ad.metadata) || {};
     const strategy = meta.strategy || {};
 
-    const imgSrc = resolveAdImage(ad);
-    console.log('[studio] ad id:', ad.id, '| image_url length:', (ad.image_url || '').length, '| resolved src starts with:', imgSrc.slice(0, 40));
-    const img = document.getElementById('studio-img');
+    const isLayoutFirst = meta.source_mode === 'layout_first' || !ad.image_url;
+    const editablePreviewEl = document.getElementById('studio-editable-preview');
+    const img     = document.getElementById('studio-img');
     const imgFail = document.getElementById('studio-img-fail');
-    if (img) {
-      img.src = imgSrc;
-      img.style.display = imgSrc ? '' : 'none';
-      img.onerror = () => {
-        console.warn('[studio] image failed to load:', imgSrc.slice(0, 80));
-        img.style.display = 'none';
-        if (imgFail) imgFail.classList.remove('hidden');
-      };
-      img.onload = () => { if (imgFail) imgFail.classList.add('hidden'); };
+
+    if (isLayoutFirst && editablePreviewEl) {
+      // Hide image elements, show editable canvas preview
+      if (img)     { img.style.display = 'none'; img.src = ''; }
+      if (imgFail) imgFail.classList.add('hidden');
+      editablePreviewEl.classList.remove('hidden');
+      editablePreviewEl.innerHTML = '<div style="color:#888;font-size:13px;padding:16px;">Loading preview…</div>';
+
+      // Fetch layout JSON and render
+      fetchApi(`/api/editable-designs/${ad.id}`)
+        .then(res => {
+          if (res.success && res.data) {
+            renderEditableDesignPreview(res.data, editablePreviewEl);
+          } else {
+            editablePreviewEl.innerHTML = '<div style="color:#888;font-size:13px;padding:16px;">Preview unavailable</div>';
+          }
+        })
+        .catch(() => {
+          editablePreviewEl.innerHTML = '<div style="color:#888;font-size:13px;padding:16px;">Preview unavailable</div>';
+        });
+    } else {
+      if (editablePreviewEl) editablePreviewEl.classList.add('hidden');
+      const imgSrc = resolveAdImage(ad);
+      console.log('[studio] ad id:', ad.id, '| image_url length:', (ad.image_url || '').length, '| resolved src starts with:', imgSrc.slice(0, 40));
+      if (img) {
+        img.src = imgSrc;
+        img.style.display = imgSrc ? '' : 'none';
+        img.onerror = () => {
+          console.warn('[studio] image failed to load:', imgSrc.slice(0, 80));
+          img.style.display = 'none';
+          if (imgFail) imgFail.classList.remove('hidden');
+        };
+        img.onload = () => { if (imgFail) imgFail.classList.add('hidden'); };
+      }
+      if (imgFail) imgFail.classList.toggle('hidden', !!imgSrc);
     }
-    if (imgFail) imgFail.classList.toggle('hidden', !!imgSrc);
 
     // Format tag
     const fmtTag = ad.ad_format || strategy.layout_type || '—';
@@ -1749,8 +1943,9 @@ const App = (() => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      const modeLabel = modeUsed === 'blueprint' ? 'Claude Blueprint'
-                      : modeUsed === 'editable'  ? 'AI Editable'
+      const modeLabel = modeUsed === 'reconstruction' ? 'AI Vision Reconstruction'
+                      : modeUsed === 'blueprint'     ? 'Claude Blueprint'
+                      : modeUsed === 'editable'      ? 'AI Editable'
                       : 'Fast Layout';
       if (hintEl) hintEl.textContent = `Downloaded (${modeLabel}) — import via Figma plugin`;
     } catch (err) {
@@ -2405,7 +2600,7 @@ const App = (() => {
     selectCampaignById, createCampaign, selectNewCampaignMode,
 
     // Board
-    filterBoard, downloadAd, approveAd,
+    filterBoard: _filterBoardDebounced, downloadAd, approveAd,
 
     // Workspace state machine
     switchWorkspaceTab,
@@ -2415,6 +2610,9 @@ const App = (() => {
 
     // Remix
     triggerRemixGenerate,
+
+    // Editable Design Mode
+    setGenMode, generateEditableDesign, renderEditableDesignPreview,
 
     // Concepts
     generateConceptPlan, removeConceptCard, generateAllConcepts,

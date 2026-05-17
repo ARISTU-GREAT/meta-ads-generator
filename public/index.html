@@ -237,6 +237,16 @@
           </div>
         </div>
 
+        <!-- Generation mode toggle -->
+        <div class="gen-mode-toggle" id="gen-mode-toggle">
+          <button class="gen-mode-btn active" id="gen-mode-image" onclick="App.setGenMode('image')">
+            AI Image
+          </button>
+          <button class="gen-mode-btn" id="gen-mode-editable" onclick="App.setGenMode('editable')">
+            ✏️ Editable Design
+          </button>
+        </div>
+
         <button class="btn-generate" id="btn-remix-generate" onclick="App.triggerRemixGenerate()">
           <span>✦</span> <span id="btn-remix-label">Generate</span>
         </button>
@@ -484,8 +494,11 @@
 
       <!-- Left: Preview -->
       <div class="studio-preview-col">
+        <!-- AI Image preview -->
         <img id="studio-img" src="" alt="Ad Creative" class="studio-img" />
         <div id="studio-img-fail" class="studio-img-fail hidden">Preview unavailable</div>
+        <!-- Editable Design preview (layout-first mode) -->
+        <div id="studio-editable-preview" class="studio-editable-preview hidden"></div>
       </div>
 
       <!-- Right: Metadata + Actions -->

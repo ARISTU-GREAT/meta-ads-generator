@@ -338,44 +338,61 @@ function buildLayoutFromStrategy(strategy, brand, aspectRatio, adId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// V2 — AI vision analysis: extract editable layer structure from generated image
+// V2 — AI vision analysis: reconstruct actual generated ad as editable layers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function _visionPrompt(W, H, brandName, layoutType) {
-  return `You are a Figma design engineer.
-Analyze this advertisement image (${W}×${H} px) and extract every visible component as a Figma layer.
-Brand: "${brandName}". Layout type: "${layoutType}".
+function _visionPrompt(W, H) {
+  return `You are reconstructing this advertisement image (${W}×${H}px) for Figma editing.
 
-Respond with ONLY valid JSON — no markdown fences, no explanation:
+Your job: identify EVERY visible element and return accurate pixel bounding boxes so these layers can be placed directly over the original image in Figma.
+
+Return ONLY valid JSON, no markdown fences, no explanation:
 {
-  "layers": [ ...layer objects ordered bottom (background) to top (foreground)... ]
+  "layers": [ ...ordered bottom to top (background first, foreground last)... ]
 }
 
-Layer object schema:
+Use exactly these three layer types:
+
+TEXT — for every piece of visible text (headline, subheadline, body copy, CTA label, price, badge, bullet point, any other text):
 {
-  "type":        "RECTANGLE" | "TEXT" | "IMAGE" | "ELLIPSE" | "LINE",
-  "name":        "short descriptive name",
-  "role":        "background"|"overlay"|"product"|"logo"|"headline"|"subheadline"|"body"|"cta_bg"|"cta_text"|"badge"|"divider"|"panel"|"decorative",
-  "x":           <integer, px from left>,
-  "y":           <integer, px from top>,
-  "width":       <integer, px>,
-  "height":      <integer, px>
+  "type": "TEXT",
+  "name": "Headline" | "Subheadline" | "CTA Text" | "Benefit 1" | "Price" | etc.,
+  "text": "<exact visible string — do not paraphrase or summarise>",
+  "x": <int px from left>, "y": <int px from top>, "width": <int px>, "height": <int px>,
+  "font_size": <int pt>,
+  "font_weight": 400 | 700,
+  "color": "#rrggbb",
+  "alignment": "left" | "center" | "right"
 }
 
-Additional required fields by type:
-TEXT  → "text" (exact visible string), "color" (hex), "fontSize" (pt int), "fontWeight" (400|700), "textAlign" ("left"|"center"|"right")
-RECTANGLE → "fills": [{"type":"SOLID","color":"#hex"}], "cornerRadius": int, "opacity": float 0-1
-ELLIPSE   → "fills": [{"type":"SOLID","color":"#hex"}], "opacity": float 0-1
-LINE      → "color": "#hex", "strokeWeight": int
+IMAGE_REGION — for product photos, person/model images, lifestyle photos, logo areas:
+{
+  "type": "IMAGE_REGION",
+  "name": "Product Image" | "Person Photo" | "Logo" | "Lifestyle Photo" | etc.,
+  "role": "product" | "person" | "logo" | "lifestyle",
+  "x": <int>, "y": <int>, "width": <int>, "height": <int>
+}
+
+RECTANGLE — for background fills, colored panels, overlays, CTA button backgrounds, dividers, decorative shapes:
+{
+  "type": "RECTANGLE",
+  "name": "Background" | "CTA Button" | "Overlay" | "Panel" | "Divider" | etc.,
+  "x": <int>, "y": <int>, "width": <int>, "height": <int>,
+  "fill": "#rrggbb",
+  "opacity": <float 0.0–1.0>,
+  "border_radius": <int px>
+}
 
 Rules:
-- Extract EVERY visible text string as a separate TEXT layer (headline, subheadline, CTA text, body copy, labels, badges)
-- Include the main background as a RECTANGLE with detected fill color
-- Mark any dark/light overlay as RECTANGLE with opacity 0.3–0.6
-- CTA button = two layers: RECTANGLE (role cta_bg) + TEXT (role cta_text)
-- Product/hero image region = IMAGE layer
-- Be precise: text bounds should tightly wrap the visible text
-- Use pixel coordinates in the ${W}×${H} space`;
+- Extract EVERY piece of visible text. Do not skip any string, even if small.
+- Background: one RECTANGLE covering full ${W}×${H}, fill = dominant background color.
+- Semi-transparent overlay: RECTANGLE with opacity 0.3–0.6, fill "#000000" or detected color.
+- CTA button: RECTANGLE (button background) + TEXT (button label) as separate layers.
+- Text bounding boxes must TIGHTLY wrap the visible text — not padded or approximate.
+- IMAGE_REGION bounding boxes should cover the full visible photo/image area.
+- Logo: IMAGE_REGION with role "logo", tight bounding box around the logo area.
+- All coordinates in the ${W}×${H}px canvas. x + width ≤ ${W}, y + height ≤ ${H}.
+- Order layers: background first (z=0), then panels/overlays, then images, then text, CTA last.`;
 }
 
 function _normalizeLayer(layer, W, H) {
@@ -394,33 +411,44 @@ function _normalizeLayer(layer, W, H) {
   };
 
   if (type === 'TEXT') {
-    const rawSize = Number(layer.fontSize) || 32;
+    // Accept both new schema (font_size/font_weight/alignment) and old (fontSize/fontWeight/textAlign)
+    const rawSize = Number(layer.font_size || layer.fontSize) || 32;
     base.content   = String(layer.text || layer.content || '');
     base.style = {
       fontFamily: 'Inter',
-      fontWeight: Number(layer.fontWeight) || 400,
+      fontWeight: Number(layer.font_weight || layer.fontWeight) || 400,
       fontSize:   Math.max(8, Math.min(300, rawSize)),
       color:      String(layer.color || '#000000'),
-      textAlign:  String(layer.textAlign || 'left'),
+      textAlign:  String(layer.alignment || layer.textAlign || 'left'),
     };
   }
 
   if (type === 'RECTANGLE' || type === 'ELLIPSE') {
     let color = '#888888';
-    if (layer.fills && layer.fills[0]) {
+    if (layer.fill && typeof layer.fill === 'string') {
+      // New reconstruction schema: flat "fill" string
+      color = layer.fill;
+    } else if (layer.fills && layer.fills[0]) {
       color = layer.fills[0].color || color;
     } else if (layer.color) {
       color = layer.color;
     }
     base.fills = [{ type: 'SOLID', color }];
-    if (layer.cornerRadius != null) base.cornerRadius = Math.max(0, Number(layer.cornerRadius) || 0);
-    if (layer.opacity      != null) base.opacity       = Math.max(0, Math.min(1, Number(layer.opacity)));
+    // Accept border_radius (new) or cornerRadius (old)
+    const radius = layer.border_radius != null ? layer.border_radius : layer.cornerRadius;
+    if (radius != null) base.cornerRadius = Math.max(0, Number(radius) || 0);
+    if (layer.opacity != null) base.opacity = Math.max(0, Math.min(1, Number(layer.opacity)));
   }
 
   if (type === 'LINE') {
     base.fills        = [{ type: 'SOLID', color: String(layer.color || '#888888') }];
     base.strokeWeight = Math.max(1, Number(layer.strokeWeight) || 1);
     base.height       = Math.max(1, base.height);
+  }
+
+  // IMAGE_REGION — visual placeholder for product/person/logo areas
+  if (type === 'IMAGE_REGION') {
+    base.role = String(layer.role || 'product');
   }
 
   return base;
@@ -436,10 +464,7 @@ async function analyzeAdLayout(ad, brand) {
   const canvas    = CANVAS_SIZES[aspectRatio] || CANVAS_SIZES.square;
   const { width: W, height: H } = canvas;
 
-  const brandName  = brand.name        || 'Brand';
-  const layoutType = strategy.layout_type || 'product_focus';
-
-  console.log(`[analyzeAdLayout] ad=${ad.id} canvas=${W}x${H} model=${VISION_MODEL()}`);
+  console.log(`[analyzeAdLayout] ad=${ad.id} canvas=${W}x${H} model=${VISION_MODEL()} mode=reconstruction`);
 
   const completion = await openai.chat.completions.create({
     model:    VISION_MODEL(),
@@ -447,7 +472,7 @@ async function analyzeAdLayout(ad, brand) {
       role:    'user',
       content: [
         { type: 'image_url', image_url: { url: ad.image_url, detail: 'high' } },
-        { type: 'text',      text: _visionPrompt(W, H, brandName, layoutType) },
+        { type: 'text',      text: _visionPrompt(W, H) },
       ],
     }],
     response_format: { type: 'json_object' },
@@ -471,24 +496,19 @@ async function analyzeAdLayout(ad, brand) {
   const layers = rawLayers.map(l => _normalizeLayer(l, W, H));
 
   return {
-    version:          '2.0',
+    version:          '2.1',
     schema:           'creative-layout',
     figma_exportable: true,
-    export_mode:      'editable',
+    export_mode:      'reconstruction',
     meta: {
       ad_id:        ad.id,
       brand_name:   brand.name || '',
-      layout_type:  layoutType,
       aspect_ratio: aspectRatio,
       analyzed_by:  VISION_MODEL(),
     },
-    canvas: { width: W, height: H },
+    canvas:          { width: W, height: H },
+    // reference_image injected by route after analysis (needs imageEndpointUrl)
     layers,
-    creative_intelligence: {
-      layout_type:     layoutType,
-      color_strategy:  strategy.color_strategy   || '',
-      ad_energy:       strategy.ad_energy        || '',
-    },
   };
 }
 
@@ -512,6 +532,32 @@ async function saveLayout(adId, layoutJson) {
 async function getLayoutByAdId(adId) {
   const { rows } = await query(
     'SELECT * FROM creative_layouts WHERE ad_id = $1',
+    [adId]
+  );
+  return rows[0] || null;
+}
+
+// ── Layout-First Editable Design (V4 — adflow-editable-design schema) ────────
+
+async function saveLayoutFirstDesign(adId, layoutJson) {
+  await query(
+    `INSERT INTO creative_layouts
+       (ad_id, layout_json, figma_exportable, version, source_mode, status)
+     VALUES ($1, $2, true, $3, 'layout_first', 'draft')
+     ON CONFLICT (ad_id) DO UPDATE
+       SET layout_json  = EXCLUDED.layout_json,
+           version      = EXCLUDED.version,
+           source_mode  = 'layout_first',
+           status       = 'draft',
+           updated_at   = NOW()`,
+    [adId, JSON.stringify(layoutJson), layoutJson.version || '1.0']
+  );
+}
+
+async function getLayoutFirstDesign(adId) {
+  const { rows } = await query(
+    `SELECT layout_json, source_mode, status, created_at, updated_at
+     FROM creative_layouts WHERE ad_id = $1 AND source_mode = 'layout_first'`,
     [adId]
   );
   return rows[0] || null;
@@ -555,4 +601,5 @@ module.exports = {
   buildLayoutFromStrategy, saveLayout, getLayoutByAdId,
   saveEditableLayout, getEditableLayout, analyzeAdLayout,
   saveBlueprintLayout, getBlueprintLayout,
+  saveLayoutFirstDesign, getLayoutFirstDesign,
 };
