@@ -1,8 +1,8 @@
 // AdFlow Creative Importer — Figma Plugin
-// Minimal, sandbox-safe: no ??, no ?., no require, no DOM, no Node APIs.
+// Sandbox-safe: no ??, no ?., no require, no DOM, no Node APIs.
 // Only figma.showUI and figma.ui.onmessage run at startup.
 
-figma.showUI(__html__, { width: 420, height: 580 });
+figma.showUI(__html__, { width: 420, height: 620 });
 
 figma.ui.onmessage = async function(msg) {
   if (!msg) return;
@@ -54,7 +54,9 @@ async function createTestFrame() {
 // ── Import handler ────────────────────────────────────────────────────────────
 
 async function handleImport(msg) {
-  var rawJson = msg.json;
+  var rawJson      = msg.json;
+  var importImages = !!msg.importImages;
+
   if (!rawJson) {
     figma.ui.postMessage({ type: 'error', message: 'No JSON provided', stack: '' });
     return;
@@ -82,7 +84,24 @@ async function handleImport(msg) {
     });
     return;
   }
-  await importCreative(layout);
+  await importCreative(layout, importImages);
+}
+
+// ── Image fetching ────────────────────────────────────────────────────────────
+
+async function fetchImageFill(url) {
+  // Returns a Figma IMAGE fill paint, or null on failure
+  try {
+    var response = await fetch(url);
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    var bytes = await response.arrayBuffer();
+    var uint8 = new Uint8Array(bytes);
+    var figmaImage = figma.createImage(uint8);
+    return { type: 'IMAGE', scaleMode: 'FILL', imageHash: figmaImage.hash };
+  } catch (e) {
+    console.warn('[AdFlow] image fetch failed (' + url + '): ' + e.message);
+    return null;
+  }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -155,29 +174,25 @@ function resolveCanvas(layout) {
   };
 }
 
-// Supports both content (AdFlow export) and text (test JSON) fields
 function getTextContent(layer) {
   if (layer.content != null) return String(layer.content);
   if (layer.text    != null) return String(layer.text);
   return '';
 }
 
-// Supports both fontSize (root) and style.fontSize
 function getTextFontSize(layer) {
   var style = layer.style || {};
   var size  = (layer.fontSize != null) ? layer.fontSize : style.fontSize;
   return Math.max(1, safeNum(size, 32));
 }
 
-// Supports both color (root) and style.color
 function getTextColor(layer) {
   var style = layer.style || {};
-  if (layer.color != null)  return layer.color;
-  if (style.color != null)  return style.color;
+  if (layer.color != null) return layer.color;
+  if (style.color != null) return style.color;
   return null;
 }
 
-// Supports both textAlign (root) and style.textAlign
 function getTextAlign(layer) {
   var style = layer.style || {};
   var align = layer.textAlign || style.textAlign || 'LEFT';
@@ -186,14 +201,14 @@ function getTextAlign(layer) {
 
 // ── Main import ───────────────────────────────────────────────────────────────
 
-async function importCreative(layout) {
+async function importCreative(layout, importImages) {
   var layers = resolveLayers(layout);
   var canvas = resolveCanvas(layout);
   var W      = Math.max(1, canvas.width);
   var H      = Math.max(1, canvas.height);
   var meta   = layout.meta || {};
 
-  console.log('[AdFlow] canvas: ' + W + 'x' + H + ' | layers: ' + layers.length);
+  console.log('[AdFlow] canvas: ' + W + 'x' + H + ' | layers: ' + layers.length + ' | importImages: ' + importImages);
   figma.ui.postMessage({ type: 'progress', message: 'Loading font…' });
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
 
@@ -214,6 +229,8 @@ async function importCreative(layout) {
 
   var built   = 0;
   var skipped = 0;
+  var imgFetched = 0;
+  var imgFailed  = 0;
 
   for (var i = 0; i < layers.length; i++) {
     var layer = layers[i];
@@ -244,25 +261,64 @@ async function importCreative(layout) {
         node = rect;
 
       } else if (type === 'IMAGE') {
+        // Always create a frame (acts as a clipping container)
         var imgFrame = figma.createFrame();
         imgFrame.name = String(layer.name || 'Image');
         imgFrame.x = x; imgFrame.y = y;
         imgFrame.resize(w, h);
         imgFrame.clipsContent = true;
-        imgFrame.fills = [{ type: 'SOLID', color: { r: 0.85, g: 0.85, b: 0.87 } }];
-        try {
-          var lbl = figma.createText();
-          lbl.fontName = { family: 'Inter', style: 'Regular' };
-          lbl.fontSize = Math.max(11, Math.round(Math.min(w, h) * 0.06));
-          lbl.fills    = [{ type: 'SOLID', color: { r: 0.38, g: 0.40, b: 0.45 } }];
-          lbl.characters = String('◈  ' + String(layer.name || 'Image'));
-          lbl.textAlignHorizontal = 'CENTER';
-          lbl.x = Math.max(0, Math.round((w - lbl.width)  / 2));
-          lbl.y = Math.max(0, Math.round((h - lbl.height) / 2));
-          imgFrame.appendChild(lbl);
-        } catch (lblErr) {
-          console.warn('[AdFlow] IMAGE label skipped: ' + lblErr.message);
+
+        if (layer.cornerRadius != null && isFinite(Number(layer.cornerRadius))) {
+          imgFrame.cornerRadius = Math.max(0, Number(layer.cornerRadius));
         }
+        if (typeof layer.opacity === 'number' && isFinite(layer.opacity)) {
+          imgFrame.opacity = Math.max(0, Math.min(1, layer.opacity));
+        }
+
+        var imageLoaded = false;
+
+        // Try real image fetch if URL is present and importImages is enabled
+        if (importImages && layer.image_url && typeof layer.image_url === 'string') {
+          figma.ui.postMessage({ type: 'progress', message: 'Fetching image: ' + String(layer.name || '') + '…' });
+          var fill = await fetchImageFill(layer.image_url);
+          if (fill) {
+            imgFrame.fills = [fill];
+            imageLoaded = true;
+            imgFetched++;
+            console.log('[AdFlow] IMAGE loaded: "' + String(layer.name || '') + '"');
+          } else {
+            imgFailed++;
+            console.warn('[AdFlow] IMAGE fetch failed for "' + String(layer.name || '') + '" — showing placeholder');
+          }
+        }
+
+        if (!imageLoaded) {
+          // Placeholder: grey fill + centered label
+          imgFrame.fills = [{ type: 'SOLID', color: { r: 0.85, g: 0.85, b: 0.87 } }];
+
+          var labelColor = imgFailed > 0 && importImages && layer.image_url
+            ? { r: 0.75, g: 0.2, b: 0.2 }   // red tint — fetch was attempted and failed
+            : { r: 0.38, g: 0.40, b: 0.45 }; // grey — no URL or images disabled
+
+          var labelText = (importImages && layer.image_url)
+            ? 'Image failed to load'
+            : String('◈  ' + String(layer.name || 'Image'));
+
+          try {
+            var lbl = figma.createText();
+            lbl.fontName = { family: 'Inter', style: 'Regular' };
+            lbl.fontSize = Math.max(11, Math.round(Math.min(w, h) * 0.055));
+            lbl.fills    = [{ type: 'SOLID', color: labelColor }];
+            lbl.characters = labelText;
+            lbl.textAlignHorizontal = 'CENTER';
+            lbl.x = Math.max(0, Math.round((w - lbl.width)  / 2));
+            lbl.y = Math.max(0, Math.round((h - lbl.height) / 2));
+            imgFrame.appendChild(lbl);
+          } catch (lblErr) {
+            console.warn('[AdFlow] placeholder label skipped: ' + lblErr.message);
+          }
+        }
+
         node = imgFrame;
 
       } else if (type === 'TEXT') {
@@ -322,9 +378,13 @@ async function importCreative(layout) {
   figma.viewport.scrollAndZoomIntoView([frame]);
   figma.currentPage.selection = [frame];
 
-  figma.ui.postMessage({
-    type:    'done',
-    message: 'Imported "' + frameName + '" — ' + built + ' layer' + (built !== 1 ? 's' : ''),
-  });
-  console.log('[AdFlow] import complete | built: ' + built + ' | skipped: ' + skipped);
+  var summary = 'Imported "' + frameName + '" — ' + built + ' layer' + (built !== 1 ? 's' : '');
+  if (importImages) {
+    summary += ' (' + imgFetched + ' image' + (imgFetched !== 1 ? 's' : '') + ' loaded';
+    if (imgFailed > 0) summary += ', ' + imgFailed + ' failed';
+    summary += ')';
+  }
+
+  figma.ui.postMessage({ type: 'done', message: summary });
+  console.log('[AdFlow] import complete | built: ' + built + ' | images: ' + imgFetched + '/' + (imgFetched + imgFailed) + ' | skipped: ' + skipped);
 }

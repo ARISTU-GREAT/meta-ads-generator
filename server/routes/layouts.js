@@ -21,21 +21,39 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/ads/:id/layout/export
-// Returns the layout JSON as a downloadable .json file (Figma plugin import)
+// Returns the layout JSON as a downloadable .json file (Figma plugin import).
+// IMAGE layers are enriched with an absolute image_url pointing to /api/ads/:id/image
+// so the Figma plugin can fetch real pixels instead of showing placeholders.
 router.get('/export', asyncHandler(async (req, res) => {
   const adId = req.params.id;
   if (!adId) throw new AppError('ad id required', 400);
 
-  const { rows: adRows } = await query('SELECT id FROM generated_ads WHERE id = $1', [adId]);
+  const { rows: adRows } = await query(
+    'SELECT id, image_url FROM generated_ads WHERE id = $1',
+    [adId]
+  );
   if (!adRows.length) throw new AppError('Ad not found', 404);
 
   const layout = await getLayoutByAdId(adId);
   if (!layout) throw new AppError('No layout found for this ad', 404);
 
+  // Build absolute URL for the public image endpoint
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const imageEndpointUrl = adRows[0].image_url ? `${baseUrl}/api/ads/${adId}/image` : null;
+
+  // Deep-copy and inject image_url into every IMAGE layer
+  const layoutJson = JSON.parse(JSON.stringify(layout.layout_json));
+  if (imageEndpointUrl && Array.isArray(layoutJson.layers)) {
+    layoutJson.layers = layoutJson.layers.map(layer => {
+      if (layer.type === 'IMAGE') return Object.assign({}, layer, { image_url: imageEndpointUrl });
+      return layer;
+    });
+  }
+
   const filename = `creative-layout-${adId.slice(0, 8)}.json`;
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.send(JSON.stringify(layout.layout_json, null, 2));
+  res.send(JSON.stringify(layoutJson, null, 2));
 }));
 
 module.exports = router;

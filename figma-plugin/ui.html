@@ -61,7 +61,7 @@
     .json-input:focus { border-color: #5b6af0; background: #fff; box-shadow: 0 0 0 3px rgba(91,106,240,0.08); }
     .json-input::placeholder { color: #bbb; font-style: italic; }
 
-    /* ── Safe mode toggle ── */
+    /* ── Toggle rows (safe mode + import images) ── */
     .safe-mode-row {
       display: flex;
       align-items: center;
@@ -206,13 +206,24 @@
   ></textarea>
 
   <div class="safe-mode-row">
+    <label class="toggle-wrap" title="Import Images: fetch real images from AdFlow server">
+      <input type="checkbox" id="import-images-toggle" checked />
+      <span class="toggle-track"></span>
+    </label>
+    <div>
+      <div class="safe-mode-label"><strong>Import Images</strong> — fetch real ad images</div>
+      <div class="safe-mode-hint">Requires AdFlow server to be reachable · falls back to placeholder on error</div>
+    </div>
+  </div>
+
+  <div class="safe-mode-row">
     <label class="toggle-wrap" title="Safe Mode: Inter Regular only, no grouping">
       <input type="checkbox" id="safe-mode-toggle" />
       <span class="toggle-track"></span>
     </label>
     <div>
       <div class="safe-mode-label"><strong>Safe Mode</strong> — use if plugin crashes</div>
-      <div class="safe-mode-hint">Skips font matching &amp; layer grouping · uses Inter Regular only</div>
+      <div class="safe-mode-hint">Disables image fetching · uses Inter Regular only</div>
     </div>
   </div>
 
@@ -234,14 +245,25 @@
   </div>
 
   <script>
-    const textarea   = document.getElementById('json-input');
-    const statusEl   = document.getElementById('status');
-    const stackEl    = document.getElementById('error-stack');
-    const btnEl      = document.getElementById('btn-import');
-    const testBtnEl  = document.getElementById('btn-test');
-    const spinnerEl  = document.getElementById('spinner');
-    const labelEl    = document.getElementById('btn-label');
-    const safeModeEl = document.getElementById('safe-mode-toggle');
+    const textarea        = document.getElementById('json-input');
+    const statusEl        = document.getElementById('status');
+    const stackEl         = document.getElementById('error-stack');
+    const btnEl           = document.getElementById('btn-import');
+    const testBtnEl       = document.getElementById('btn-test');
+    const spinnerEl       = document.getElementById('spinner');
+    const labelEl         = document.getElementById('btn-label');
+    const safeModeEl      = document.getElementById('safe-mode-toggle');
+    const importImagesEl  = document.getElementById('import-images-toggle');
+
+    // Safe mode disables image fetching — sync the import-images toggle
+    safeModeEl.addEventListener('change', () => {
+      if (safeModeEl.checked) {
+        importImagesEl.checked = false;
+        importImagesEl.disabled = true;
+      } else {
+        importImagesEl.disabled = false;
+      }
+    });
 
     function setStatus(type, message, stack) {
       statusEl.className = 'status visible ' + type;
@@ -313,11 +335,12 @@
         return;
       }
 
-      const safeMode = safeModeEl.checked;
+      const safeMode     = safeModeEl.checked;
+      const importImages = importImagesEl.checked && !safeMode;
       setLoading(true);
-      setStatus('progress', 'Sending to Figma sandbox…');
+      setStatus('progress', importImages ? 'Sending to Figma sandbox (images enabled)…' : 'Sending to Figma sandbox…');
 
-      parent.postMessage({ pluginMessage: { type: 'import', json: raw, safeMode } }, '*');
+      parent.postMessage({ pluginMessage: { type: 'import', json: raw, safeMode, importImages } }, '*');
     }
 
     // Cmd/Ctrl+Enter shortcut

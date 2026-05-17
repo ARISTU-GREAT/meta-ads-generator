@@ -50,6 +50,28 @@ app.use(session({
 // Favicon — prevent 404 or SPA fallback for browser automatic requests
 app.get('/favicon.ico', (_req, res) => res.status(204).end());
 
+// Public image endpoint — serves ad image bytes without session auth so
+// the Figma plugin (which cannot send cookies) can fetch the image.
+// Security: ad UUID is 128-bit random; guessing is not practical.
+app.get('/api/ads/:id/image', (req, res, next) => {
+  const { pool: dbPool } = require('./db');
+  dbPool.query('SELECT image_url FROM generated_ads WHERE id = $1', [req.params.id])
+    .then(({ rows }) => {
+      if (!rows.length || !rows[0].image_url) return res.status(404).json({ error: 'Image not found' });
+      const dataUrl = rows[0].image_url;
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/s);
+      if (!match) return res.status(500).json({ error: 'Unsupported image format' });
+      const mimeType = match[1];
+      const buf = Buffer.from(match[2], 'base64');
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Length', buf.length);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Access-Control-Allow-Origin', '*');  // required for Figma plugin fetch
+      res.send(buf);
+    })
+    .catch(next);
+});
+
 // Serve static frontend (public assets are always accessible)
 app.use(express.static(path.join(__dirname, '../public')));
 
