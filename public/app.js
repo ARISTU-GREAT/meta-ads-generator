@@ -229,12 +229,48 @@ const App = (() => {
   const BRAND_KIT_REQUIRED = ['name', 'description', 'primary_color', 'secondary_color', 'target_audience', 'brand_voice'];
   const BRAND_KIT_LABELS   = { name: 'Brand Name', description: 'Description', primary_color: 'Primary Color', secondary_color: 'Secondary Color', target_audience: 'Target Audience', brand_voice: 'Brand Voice' };
 
+  // ── Perf utilities ────────────────────────────────────────────
+  const _perf = {
+    _marks: {},
+    start(label) { this._marks[label] = performance.now(); },
+    end(label) {
+      const t = this._marks[label];
+      if (t != null) console.log(`[perf] ${label}: ${(performance.now() - t).toFixed(1)}ms`);
+      delete this._marks[label];
+    },
+  };
+
+  function debounce(fn, ms) {
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
+
+  // Auth cache — avoids calling /api/auth/me on every 401 within a short window
+  let _authCacheValid = false;
+  let _authCacheTime  = 0;
+  const AUTH_CACHE_TTL = 10_000;
+
+  async function _cachedAuthCheck() {
+    const now = Date.now();
+    if (_authCacheValid && now - _authCacheTime < AUTH_CACHE_TTL) return true;
+    const me = await fetch('/api/auth/me', { credentials: 'include' }).then(x => x.json()).catch(() => ({}));
+    if (me.authenticated) {
+      _authCacheValid = true;
+      _authCacheTime  = now;
+      return true;
+    }
+    _authCacheValid = false;
+    return false;
+  }
+
+  function _invalidateAuthCache() { _authCacheValid = false; _authCacheTime = 0; }
+
   // ── API Helpers ──────────────────────────────────────────────
   async function _handleApiResponse(r) {
     if (r.status === 401) {
-      // Verify with /me before showing login — avoids false positives from a single bad request
-      const me = await fetch('/api/auth/me', { credentials: 'include' }).then(x => x.json()).catch(() => ({}));
-      if (!me.authenticated) {
+      const authed = await _cachedAuthCheck();
+      if (!authed) {
+        _invalidateAuthCache();
         Auth.showLoginScreen('login');
         throw new Error('Session expired. Please sign in again.');
       }
@@ -729,6 +765,7 @@ const App = (() => {
     renderBoardCards(state.boardFiltered);
     updateBoardStats();
   }
+  const _filterBoardDebounced = debounce(filterBoard, 150);
 
   function renderBoard() {
     const empty = document.getElementById('board-empty');
@@ -748,17 +785,55 @@ const App = (() => {
     updateBoardStats();
   }
 
+  const BOARD_PAGE_SIZE = 50;
+  let _boardRenderedCount = 0;
+
   function renderBoardCards(ads) {
     const grid = document.getElementById('board-grid');
     if (!grid) return;
-    // Keep skeleton cards that may still be loading
     const skeletons = Array.from(grid.querySelectorAll('.board-card.skeleton'));
     grid.innerHTML = '';
-    // Re-add skeletons first
-    skeletons.forEach(s => grid.appendChild(s));
-    // Append real cards
-    ads.forEach(ad => grid.appendChild(buildBoardCard(ad)));
+    const frag = document.createDocumentFragment();
+    skeletons.forEach(s => frag.appendChild(s));
+    const page = ads.slice(0, BOARD_PAGE_SIZE);
+    page.forEach(ad => frag.appendChild(buildBoardCard(ad)));
+    _boardRenderedCount = page.length;
+    grid.appendChild(frag);
     updateBoardCount(ads.length + skeletons.length);
+    _syncLoadMoreButton(ads);
+  }
+
+  function _syncLoadMoreButton(ads) {
+    let btn = document.getElementById('board-load-more');
+    const remaining = ads.length - _boardRenderedCount;
+    if (remaining > 0) {
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'board-load-more';
+        btn.className = 'btn-load-more';
+        btn.addEventListener('click', () => _appendBoardPage(ads));
+        document.getElementById('board-grid')?.insertAdjacentElement('afterend', btn);
+      } else {
+        btn.onclick = null;
+        btn.addEventListener('click', () => _appendBoardPage(ads), { once: true });
+      }
+      const showing = Math.min(remaining, BOARD_PAGE_SIZE);
+      btn.textContent = `Load ${showing} more (${remaining} remaining)`;
+      btn.style.display = '';
+    } else if (btn) {
+      btn.style.display = 'none';
+    }
+  }
+
+  function _appendBoardPage(ads) {
+    const grid = document.getElementById('board-grid');
+    if (!grid) return;
+    const frag = document.createDocumentFragment();
+    const page = ads.slice(_boardRenderedCount, _boardRenderedCount + BOARD_PAGE_SIZE);
+    page.forEach(ad => frag.appendChild(buildBoardCard(ad)));
+    _boardRenderedCount += page.length;
+    grid.appendChild(frag);
+    _syncLoadMoreButton(ads);
   }
 
   function buildBoardCard(ad) {
@@ -1216,8 +1291,9 @@ const App = (() => {
     const response = await fetch(`/api${path}`, { method: 'POST', credentials: 'include', body: formData });
     if (!response.ok) {
       if (response.status === 401) {
-        const me = await fetch('/api/auth/me', { credentials: 'include' }).then(x => x.json()).catch(() => ({}));
-        if (!me.authenticated) {
+        const authed = await _cachedAuthCheck();
+        if (!authed) {
+          _invalidateAuthCache();
           Auth.showLoginScreen('login');
           throw new Error('Session expired. Please sign in again.');
         }

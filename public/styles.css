@@ -2026,6 +2026,24 @@ body {
   flex: 1;
 }
 
+/* ── Load More button ───────────────────────────────────────── */
+.btn-load-more {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-load-more:hover { background: var(--surface-3); color: var(--text-1); }
+
 /* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   :root { --context-w: 0px; }
