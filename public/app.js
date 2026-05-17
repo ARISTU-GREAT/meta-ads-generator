@@ -2157,6 +2157,157 @@ const App = (() => {
     }
   });
 
+  // ── AI Helper ─────────────────────────────────────────────────
+  // Tracks which providers have API keys configured on the server.
+  const _aiCap = { openai: true, anthropic: true, gemini: false }; // optimistic defaults
+
+  const CONCEPT_PRESETS = {
+    luxury:                'Premium, aspirational tone with high-end visual language. Focus on exclusivity, craftsmanship, and desire. Use minimal text with confident, evocative copy. Target affluent consumers who value quality over price.',
+    direct_response:       'Aggressive direct-response with clear value proposition, urgency, and a specific offer. Lead with the benefit, back with social proof, close with a strong CTA. Every element drives the click.',
+    ugc:                   'Authentic user-generated content style — raw, relatable, first-person voice. Feels like a genuine customer recommendation rather than a polished ad. Build trust through social proof and real testimonials.',
+    native_feed:           'Blends seamlessly into organic feed content. Conversational, educational, low-pressure. Teaches or entertains first, sells second. Ideal for mid-funnel awareness building.',
+    premium_wellness:      'Clean, calm, aspirational wellness aesthetic. Soft palettes, lifestyle-forward imagery, science-backed credibility. Speaks to self-care, transformation, and long-term wellbeing.',
+    aggressive_conversion: 'High-urgency conversion play — limited time, limited stock, stacked social proof. Loss-aversion triggers throughout. Bold guarantees and risk-reversal to drive immediate action.',
+    clean_minimal:         'Stark minimalism — white space, a single hero message, one strong visual. Let the product speak for itself. No clutter. Sophisticated confidence in simplicity.',
+    founder_story:         'Authentic founder narrative — the why behind the brand. Personal, vulnerable, mission-driven. Builds deep brand connection and loyalty. Ideal for storytelling formats.',
+  };
+
+  async function _loadAiCapabilities() {
+    try {
+      const res  = await fetch('/api/health/ai');
+      if (!res.ok) return;
+      const data = await res.json();
+      _aiCap.openai    = !!data.openai;
+      _aiCap.anthropic = !!data.anthropic;
+      _aiCap.gemini    = !!data.gemini;
+      _applyAiCapabilities();
+    } catch (e) {
+      console.warn('[aiHelper] health check failed:', e.message);
+    }
+  }
+
+  function _applyAiCapabilities() {
+    // Update provider dropdowns
+    _updateProviderSelect('ai-prov-instructions', 'openai');
+    _updateProviderSelect('ai-prov-strategy',     'claude');
+    // Blueprint button state
+    const blueprintBtn = document.getElementById('btn-export-figma-blueprint');
+    if (blueprintBtn) {
+      const missing = !_aiCap.anthropic;
+      blueprintBtn.disabled = missing;
+      blueprintBtn.title    = missing ? 'Claude Blueprint requires ANTHROPIC_API_KEY' : '';
+    }
+  }
+
+  function _updateProviderSelect(selectId, defaultProvider) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    Array.from(sel.options).forEach(opt => {
+      const provider = opt.value;
+      const available = provider === 'openai'  ? _aiCap.openai
+                      : provider === 'claude'  ? _aiCap.anthropic
+                      : provider === 'gemini'  ? _aiCap.gemini
+                      : false;
+      opt.disabled = !available;
+      opt.text     = (provider === 'openai'  ? '⬛ OpenAI'
+                    : provider === 'claude'  ? '◆ Claude'
+                    :                         '✦ Gemini') + (available ? '' : ' (key missing)');
+    });
+    // Set default to first available option matching preference
+    if (!sel.value || sel.options[sel.selectedIndex]?.disabled) {
+      const preferred = Array.from(sel.options).find(o => o.value === defaultProvider && !o.disabled)
+                     || Array.from(sel.options).find(o => !o.disabled);
+      if (preferred) sel.value = preferred.value;
+    }
+  }
+
+  function _buildBrandContext() {
+    const b = state.activeBrand;
+    if (!b) return '';
+    return [
+      b.name             && `Brand: ${b.name}`,
+      b.industry         && `Industry: ${b.industry}`,
+      b.description      && `Description: ${b.description}`,
+      b.primary_color    && `Primary color: ${b.primary_color}`,
+      b.target_audience  && `Target audience: ${b.target_audience}`,
+      b.brand_voice      && `Brand voice: ${b.brand_voice}`,
+      b.offer_cta        && `CTA: ${b.offer_cta}`,
+      b.headline_style   && `Headline style: ${b.headline_style}`,
+    ].filter(Boolean).join('\n');
+  }
+
+  function _buildPersonaContext() {
+    const ids     = state.concepts.selectedPersonaIds || [];
+    const selected = state.personas.filter(p => ids.includes(p.id));
+    return selected.map(p => p.name + (p.description ? ': ' + p.description : '')).join('\n');
+  }
+
+  async function _runAiHelper(textareaId, fieldType, mode) {
+    const ta          = document.getElementById(textareaId);
+    const selectId    = textareaId === 'remix-instructions' ? 'ai-prov-instructions' : 'ai-prov-strategy';
+    const improveBtnId = textareaId === 'remix-instructions' ? 'ai-improve-instructions' : 'ai-improve-strategy';
+    const generateBtnId = textareaId === 'remix-instructions' ? 'ai-generate-instructions' : 'ai-generate-strategy';
+    const sel         = document.getElementById(selectId);
+    const provider    = sel ? sel.value : 'openai';
+
+    if (!ta) return;
+
+    const improveBtn  = document.getElementById(improveBtnId);
+    const generateBtn = document.getElementById(generateBtnId);
+    const isImproving = (mode === 'improve' && ta.value.trim());
+    const label       = isImproving ? '…Improving' : '…Generating';
+
+    // Loading state
+    if (improveBtn)  { improveBtn.disabled  = true; improveBtn.textContent  = isImproving ? '…' : improveBtn.textContent; }
+    if (generateBtn) { generateBtn.disabled = true; generateBtn.textContent = isImproving ? generateBtn.textContent : label; }
+
+    try {
+      const res = await fetch('/api/ai/generate-strategy', {
+        method:      'POST',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider,
+          field_type:       fieldType,
+          mode:             (mode === 'generate') ? 'generate' : 'auto',
+          existing_text:    mode === 'generate' ? '' : ta.value.trim(),
+          brand_context:    _buildBrandContext(),
+          persona_context:  _buildPersonaContext(),
+          reference_context: '',
+        }),
+      });
+
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.error || msg; } catch {}
+        throw new Error(msg);
+      }
+      const { text } = await res.json();
+      ta.value = text;
+      ta.dispatchEvent(new Event('input'));
+      ta.focus();
+    } catch (err) {
+      console.error('[aiHelper] failed:', err.message);
+      toast('AI helper failed: ' + err.message, 'error');
+    } finally {
+      if (improveBtn)  { improveBtn.disabled  = false; improveBtn.textContent  = '✨ Improve'; }
+      if (generateBtn) { generateBtn.disabled = false; generateBtn.textContent = '🧠 Generate'; }
+    }
+  }
+
+  function aiGenerate(textareaId, fieldType) { _runAiHelper(textareaId, fieldType, 'generate'); }
+  function aiImprove(textareaId, fieldType)  { _runAiHelper(textareaId, fieldType, 'improve');  }
+
+  function applyConceptPreset(preset) {
+    const text = CONCEPT_PRESETS[preset];
+    if (!text) return;
+    const ta = document.getElementById('concept-strategy');
+    if (!ta) return;
+    ta.value = text;
+    ta.focus();
+    ta.dispatchEvent(new Event('input'));
+  }
+
   // ── Boot ─────────────────────────────────────────────────────
   async function init() {
     checkBrandKitComplete(null);  // disable generate buttons until a brand is selected and kit is complete
@@ -2166,6 +2317,7 @@ const App = (() => {
     _syncConceptPlanPanel();
     initRemixDropZones();
     initBrandAssetUpload();
+    _loadAiCapabilities(); // non-blocking — greys out unavailable providers after fetch
     await Promise.all([loadBrands(), loadFormats()]);
   }
 
@@ -2234,5 +2386,8 @@ const App = (() => {
     // Brand Memory
     filterMemory, analyzeAllAssets, generateNewAngles,
     deleteMemory, deleteAngle, openAddMemoryNote,
+
+    // AI Helper
+    aiGenerate, aiImprove, applyConceptPreset,
   };
 })();

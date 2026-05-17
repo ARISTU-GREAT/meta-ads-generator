@@ -191,12 +191,14 @@ function _normalizeLayer(raw, W, H, fallbackZ) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+const BLUEPRINT_TIMEOUT_MS = 45_000;
+
 async function generateBlueprint({ brand, strategy, aspectRatio, conceptContext }) {
   const client = getClient();
   const canvas = CANVAS_SIZES[aspectRatio] || CANVAS_SIZES.square;
   const { width: W, height: H } = canvas;
 
-  console.log(`[claudeDesignService] generating blueprint brand=${brand.name} canvas=${W}x${H} model=${MODEL()}`);
+  console.log(`[CLAUDE_BLUEPRINT_START] brand=${brand.name} canvas=${W}x${H} model=${MODEL()} timeout=${BLUEPRINT_TIMEOUT_MS}ms`);
 
   const systemPrompt =
     'You are a senior Figma designer and ad layout expert. ' +
@@ -205,12 +207,25 @@ async function generateBlueprint({ brand, strategy, aspectRatio, conceptContext 
 
   const userPrompt = _buildUserPrompt(brand, strategy, W, H, aspectRatio, conceptContext);
 
-  const response = await client.messages.create({
-    model:      MODEL(),
-    max_tokens: 4096,
-    system:     systemPrompt,
-    messages:   [{ role: 'user', content: userPrompt }],
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BLUEPRINT_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await client.messages.create(
+      { model: MODEL(), max_tokens: 4096, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] },
+      { signal: controller.signal }
+    );
+    clearTimeout(timer);
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError' || (err.message && err.message.toLowerCase().includes('abort'))) {
+      console.error(`[CLAUDE_BLUEPRINT_FAIL] timeout after ${BLUEPRINT_TIMEOUT_MS}ms brand=${brand.name}`);
+      throw new Error(`Claude blueprint timed out after ${BLUEPRINT_TIMEOUT_MS / 1000}s — try again or use Editable Export`);
+    }
+    console.error(`[CLAUDE_BLUEPRINT_FAIL] ${err.message} brand=${brand.name}`);
+    throw err;
+  }
 
   const raw = response.content[0].text;
   let parsed;
@@ -252,7 +267,7 @@ async function generateBlueprint({ brand, strategy, aspectRatio, conceptContext 
     layers,
   };
 
-  console.log(`[claudeDesignService] blueprint ready: ${layers.length} layers`);
+  console.log(`[CLAUDE_BLUEPRINT_SUCCESS] brand=${brand.name} layers=${layers.length}`);
   return blueprint;
 }
 

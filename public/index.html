@@ -171,7 +171,22 @@
         </div>
 
         <div class="field-group">
-          <label class="field-label">Instructions <span class="field-hint">optional</span></label>
+          <div class="field-label-row">
+            <label class="field-label">Instructions <span class="field-hint">optional</span></label>
+            <div class="ai-toolbar">
+              <select class="ai-provider-select" id="ai-prov-instructions" title="AI provider">
+                <option value="openai">⬛ OpenAI</option>
+                <option value="claude">◆ Claude</option>
+                <option value="gemini">✦ Gemini</option>
+              </select>
+              <button class="ai-btn" id="ai-improve-instructions"
+                onclick="App.aiImprove('remix-instructions','instructions')"
+                title="Improve existing instructions">✨ Improve</button>
+              <button class="ai-btn ai-btn-generate" id="ai-generate-instructions"
+                onclick="App.aiGenerate('remix-instructions','instructions')"
+                title="Generate fresh instructions from brand">🧠 Generate</button>
+            </div>
+          </div>
           <textarea class="field-textarea" id="remix-instructions" rows="2"
             placeholder="Offer, CTA, dark background, luxury feel…"></textarea>
         </div>
@@ -244,9 +259,35 @@
         </div>
 
         <div class="field-group">
-          <label class="field-label">Concept Strategy <span class="field-hint">optional</span></label>
+          <div class="field-label-row">
+            <label class="field-label">Concept Strategy <span class="field-hint">optional</span></label>
+            <div class="ai-toolbar">
+              <select class="ai-provider-select" id="ai-prov-strategy" title="AI provider">
+                <option value="claude">◆ Claude</option>
+                <option value="openai">⬛ OpenAI</option>
+                <option value="gemini">✦ Gemini</option>
+              </select>
+              <button class="ai-btn" id="ai-improve-strategy"
+                onclick="App.aiImprove('concept-strategy','concept_strategy')"
+                title="Improve existing strategy">✨ Improve</button>
+              <button class="ai-btn ai-btn-generate" id="ai-generate-strategy"
+                onclick="App.aiGenerate('concept-strategy','concept_strategy')"
+                title="Generate strategy from brand + personas">🧠 Generate</button>
+            </div>
+          </div>
           <textarea class="field-textarea" id="concept-strategy" rows="3"
             placeholder="e.g. Target busy working parents, highlight time savings, mix luxury and direct-response energy…"></textarea>
+          <div class="ai-presets">
+            <span class="ai-preset-label">Quick fill:</span>
+            <button class="ai-preset-chip" onclick="App.applyConceptPreset('luxury')">Luxury</button>
+            <button class="ai-preset-chip" onclick="App.applyConceptPreset('direct_response')">Direct Response</button>
+            <button class="ai-preset-chip" onclick="App.applyConceptPreset('ugc')">UGC</button>
+            <button class="ai-preset-chip" onclick="App.applyConceptPreset('native_feed')">Native Feed</button>
+            <button class="ai-preset-chip" onclick="App.applyConceptPreset('premium_wellness')">Premium Wellness</button>
+            <button class="ai-preset-chip" onclick="App.applyConceptPreset('aggressive_conversion')">Aggressive Conversion</button>
+            <button class="ai-preset-chip" onclick="App.applyConceptPreset('clean_minimal')">Clean Minimal</button>
+            <button class="ai-preset-chip" onclick="App.applyConceptPreset('founder_story')">Founder Story</button>
+          </div>
         </div>
 
         <div class="field-group">

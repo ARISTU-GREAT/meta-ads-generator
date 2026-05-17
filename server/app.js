@@ -14,6 +14,7 @@ const generateRouter   = require('./routes/generate');
 const campaignsRouter  = require('./routes/campaigns');
 const conceptsRouter   = require('./routes/concepts');
 const authRouter       = require('./routes/auth');
+const aiRouter         = require('./routes/ai');
 const { requireAuth }  = require('./middleware/auth');
 const { errorHandler, notFound } = require('./utils/errors');
 const { UPLOAD_BASE }  = require('./utils/paths');
@@ -85,6 +86,16 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// AI provider availability — public, no auth required
+// Lets the frontend know which providers are configured before the user logs in
+app.get('/api/health/ai', (req, res) => {
+  res.json({
+    openai:    !!process.env.OPENAI_API_KEY,
+    anthropic: !!process.env.ANTHROPIC_API_KEY,
+    gemini:    !!process.env.GEMINI_API_KEY,
+  });
+});
+
 // All remaining API routes require authentication
 app.use('/api', requireAuth);
 
@@ -96,6 +107,7 @@ app.use('/api/jobs',      jobsRouter);
 app.use('/api/generate',  generateRouter);
 app.use('/api/campaigns', campaignsRouter);
 app.use('/api/concepts',  conceptsRouter);
+app.use('/api/ai',        aiRouter);
 app.use('/api/ads/:id/layout', layoutsRouter);
 
 // SPA fallback — only for non-API, non-asset routes

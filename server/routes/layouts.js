@@ -56,6 +56,13 @@ router.get('/export', asyncHandler(async (req, res) => {
   let layoutJson;
 
   if (mode === 'blueprint') {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(400).json({
+        success: false,
+        error:   'Claude blueprint mode not configured — add ANTHROPIC_API_KEY to enable',
+      });
+    }
+
     // Check cache
     const cached = await getBlueprintLayout(adId);
     if (cached && cached.blueprint_json) {

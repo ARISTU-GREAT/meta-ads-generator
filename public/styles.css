@@ -498,6 +498,104 @@ body {
   color: var(--text-2);
 }
 .field-hint { font-weight: 400; color: var(--text-3); }
+
+/* ── AI Toolbar ─────────────────────────────────────────────── */
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 18px;
+}
+.ai-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.ai-provider-select {
+  font-size: 0.67rem;
+  font-family: inherit;
+  padding: 2px 20px 2px 6px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-3);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%239ca3af' stroke-width='1.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  transition: border-color 0.15s, color 0.15s;
+}
+.ai-provider-select:focus { outline: none; border-color: var(--accent); color: var(--text); }
+.ai-provider-select:disabled { opacity: 0.4; cursor: not-allowed; }
+.ai-btn {
+  font-size: 0.67rem;
+  font-family: inherit;
+  padding: 0 7px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-3);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+  letter-spacing: 0.01em;
+}
+.ai-btn:hover:not(:disabled) {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: rgba(91,106,240,0.3);
+}
+.ai-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+.ai-btn-generate {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: rgba(91,106,240,0.25);
+  font-weight: 500;
+}
+.ai-btn-generate:hover:not(:disabled) {
+  background: rgba(91,106,240,0.18);
+}
+
+/* ── Concept Strategy Presets ───────────────────────────────── */
+.ai-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.ai-preset-label {
+  font-size: 0.67rem;
+  color: var(--text-3);
+  margin-right: 1px;
+  white-space: nowrap;
+}
+.ai-preset-chip {
+  font-size: 0.67rem;
+  font-family: inherit;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.14s;
+  white-space: nowrap;
+}
+.ai-preset-chip:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: rgba(91,106,240,0.3);
+}
+
 .field-input, .field-textarea, .field-select {
   padding: 7px 10px;
   border: 1px solid var(--border);
