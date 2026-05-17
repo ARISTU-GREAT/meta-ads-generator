@@ -18,7 +18,15 @@
       AdFlow
     </div>
     <p class="login-subtitle">Campaign Studio</p>
-    <form class="login-form" onsubmit="Auth.submitLogin(event)">
+
+    <!-- Mode tabs — only visible when no admin exists yet -->
+    <div class="login-tabs hidden" id="login-tabs">
+      <button class="login-tab active" id="ltab-signup" onclick="Auth.showMode('signup')">Create Account</button>
+      <button class="login-tab"        id="ltab-login"  onclick="Auth.showMode('login')">Sign In</button>
+    </div>
+
+    <!-- Login form -->
+    <form class="login-form" id="form-login" onsubmit="Auth.submitLogin(event)">
       <div class="login-field">
         <label class="login-label">Email</label>
         <input class="login-input" type="email" id="login-email" autocomplete="email"
@@ -32,6 +40,28 @@
       <div class="login-error hidden" id="login-error"></div>
       <button class="login-btn" type="submit" id="login-btn">Sign In</button>
     </form>
+
+    <!-- Signup form (hidden by default, shown when no admin exists) -->
+    <form class="login-form hidden" id="form-signup" onsubmit="Auth.submitSignup(event)">
+      <div class="login-field">
+        <label class="login-label">Email</label>
+        <input class="login-input" type="email" id="signup-email" autocomplete="email"
+               placeholder="admin@example.com" required />
+      </div>
+      <div class="login-field">
+        <label class="login-label">Password <span class="login-hint">min 8 characters</span></label>
+        <input class="login-input" type="password" id="signup-password" autocomplete="new-password"
+               placeholder="••••••••" required />
+      </div>
+      <div class="login-field">
+        <label class="login-label">Confirm Password</label>
+        <input class="login-input" type="password" id="signup-confirm" autocomplete="new-password"
+               placeholder="••••••••" required />
+      </div>
+      <div class="login-error hidden" id="signup-error"></div>
+      <button class="login-btn" type="submit" id="signup-btn">Create Admin Account</button>
+    </form>
+
   </div>
 </div>
 
@@ -173,6 +203,23 @@
           <div class="volume-error hidden" id="remix-volume-error"></div>
         </div>
 
+        <div class="field-group">
+          <label class="field-label">Speed Mode</label>
+          <div class="speed-selector" id="remix-speed-selector">
+            <button class="speed-btn" data-mode="fast_draft" onclick="App.selectSpeedMode('fast_draft')">
+              <span class="speed-btn-name">Fast Draft</span>
+              <span class="speed-btn-tag">fastest</span>
+            </button>
+            <button class="speed-btn active" data-mode="balanced" onclick="App.selectSpeedMode('balanced')">
+              <span class="speed-btn-name">Balanced</span>
+            </button>
+            <button class="speed-btn" data-mode="best_quality" onclick="App.selectSpeedMode('best_quality')">
+              <span class="speed-btn-name">Best Quality</span>
+              <span class="speed-btn-tag">slowest</span>
+            </button>
+          </div>
+        </div>
+
         <button class="btn-generate" id="btn-remix-generate" onclick="App.triggerRemixGenerate()">
           <span>✦</span> <span id="btn-remix-label">Generate</span>
         </button>
@@ -245,6 +292,23 @@
           <div class="volume-error hidden" id="concept-volume-error"></div>
         </div>
 
+        <div class="field-group">
+          <label class="field-label">Speed Mode</label>
+          <div class="speed-selector" id="concept-speed-selector">
+            <button class="speed-btn" data-mode="fast_draft" onclick="App.selectSpeedMode('fast_draft')">
+              <span class="speed-btn-name">Fast Draft</span>
+              <span class="speed-btn-tag">fastest</span>
+            </button>
+            <button class="speed-btn active" data-mode="balanced" onclick="App.selectSpeedMode('balanced')">
+              <span class="speed-btn-name">Balanced</span>
+            </button>
+            <button class="speed-btn" data-mode="best_quality" onclick="App.selectSpeedMode('best_quality')">
+              <span class="speed-btn-name">Best Quality</span>
+              <span class="speed-btn-tag">slowest</span>
+            </button>
+          </div>
+        </div>
+
         <button class="btn-generate btn-generate-outline" id="btn-concept-plan" onclick="App.generateConceptPlan()">
           <span id="btn-concept-plan-label">Preview Concept Plan</span>
         </button>
@@ -273,6 +337,8 @@
           <div class="ws-gen-indicator hidden" id="ws-gen-indicator">
             <span class="ws-gen-dot"></span>
             <span id="ws-gen-indicator-text">Generating…</span>
+            <span class="ws-gen-timer-sep">·</span>
+            <span id="ws-gen-timer" class="ws-gen-timer">0:00</span>
           </div>
           <!-- Board controls -->
           <input class="board-search" type="text" placeholder="Search…" id="board-search" oninput="App.filterBoard()" />

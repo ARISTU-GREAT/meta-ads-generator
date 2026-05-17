@@ -143,6 +143,34 @@ body {
 }
 .login-btn:hover { background: var(--accent-h); }
 .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-hint { font-weight: 400; color: rgba(255,255,255,0.3); font-size: 0.6875rem; }
+
+.login-tabs {
+  display: flex;
+  gap: 0;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 20px;
+}
+.login-tab {
+  flex: 1;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.login-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
 
 /* Logout button in topbar */
 .topbar-btn-logout {
@@ -576,6 +604,63 @@ body {
   font-weight: 500;
 }
 .volume-input-wrap.has-error { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(220,38,38,0.1); }
+
+/* ── Speed Mode Selector ────────────────────────────────────── */
+.speed-selector {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--surface);
+}
+.speed-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 7px 4px;
+  background: var(--surface-2);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  font-family: inherit;
+}
+.speed-btn:last-child { border-right: none; }
+.speed-btn:hover { background: var(--bg); color: var(--text-2); }
+.speed-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.speed-btn-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.speed-btn-tag {
+  font-size: 0.625rem;
+  font-weight: 500;
+  opacity: 0.7;
+  line-height: 1;
+}
+
+/* ── Generation timer ───────────────────────────────────────── */
+.ws-gen-timer-sep {
+  color: var(--accent);
+  opacity: 0.5;
+  font-size: 0.75rem;
+}
+.ws-gen-timer {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
 
 /* ── Generate Button ────────────────────────────────────────── */
 .btn-generate {

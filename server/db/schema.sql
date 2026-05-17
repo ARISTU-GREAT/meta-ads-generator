@@ -5,6 +5,18 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ────────────────────────────────────────────────────────────
+-- USERS — single-admin auth (expand to multi-user later)
+-- ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS users (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email         TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'admin',
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ────────────────────────────────────────────────────────────
 -- BRANDS — core multi-tenant entity
 -- ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS brands (
@@ -250,6 +262,7 @@ BEGIN
 END;
 $$ LANGUAGE 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_users_updated_at           ON users;
 DROP TRIGGER IF EXISTS update_brands_updated_at          ON brands;
 DROP TRIGGER IF EXISTS update_brand_assets_updated_at    ON brand_assets;
 DROP TRIGGER IF EXISTS update_brand_personas_updated_at  ON brand_personas;
@@ -260,6 +273,8 @@ DROP TRIGGER IF EXISTS update_generated_ads_updated_at   ON generated_ads;
 DROP TRIGGER IF EXISTS update_generation_jobs_updated_at ON generation_jobs;
 DROP TRIGGER IF EXISTS update_campaigns_updated_at       ON campaigns;
 
+CREATE TRIGGER update_users_updated_at
+  BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_brands_updated_at
   BEFORE UPDATE ON brands FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_brand_assets_updated_at

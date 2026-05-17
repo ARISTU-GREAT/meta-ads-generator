@@ -5,29 +5,55 @@
 
 // ── Auth ─────────────────────────────────────────────────────
 const Auth = (() => {
-  function showLogin() {
-    document.getElementById('login-screen')?.classList.remove('hidden');
-    document.getElementById('app-shell')?.classList.add('hidden');
-    document.getElementById('login-email')?.focus();
-  }
-
   function showApp() {
     document.getElementById('login-screen')?.classList.add('hidden');
     document.getElementById('app-shell')?.classList.remove('hidden');
   }
 
+  function showLogin() {
+    document.getElementById('login-screen')?.classList.remove('hidden');
+    document.getElementById('app-shell')?.classList.add('hidden');
+  }
+
+  // Switch between 'login' and 'signup' form modes
+  function showMode(mode) {
+    const isSignup = mode === 'signup';
+    document.getElementById('form-login')?.classList.toggle('hidden', isSignup);
+    document.getElementById('form-signup')?.classList.toggle('hidden', !isSignup);
+    document.getElementById('ltab-login')?.classList.toggle('active', !isSignup);
+    document.getElementById('ltab-signup')?.classList.toggle('active', isSignup);
+    // Focus first input of visible form
+    const focusId = isSignup ? 'signup-email' : 'login-email';
+    document.getElementById(focusId)?.focus();
+  }
+
   async function check() {
     try {
-      const res  = await fetch('/api/auth/me');
-      const data = await res.json();
-      if (data.authenticated) {
+      const [statusRes, meRes] = await Promise.all([
+        fetch('/api/auth/status'),
+        fetch('/api/auth/me'),
+      ]);
+      const status = await statusRes.json();
+      const me     = await meRes.json();
+
+      if (me.authenticated) {
         showApp();
         App.init();
+        return;
+      }
+
+      showLogin();
+      if (!status.hasAdmin) {
+        // No admin yet — show tabs and default to signup
+        document.getElementById('login-tabs')?.classList.remove('hidden');
+        showMode('signup');
       } else {
-        showLogin();
+        // Admin exists — login only, no signup tab exposed
+        showMode('login');
       }
     } catch {
       showLogin();
+      showMode('login');
     }
   }
 
@@ -40,7 +66,7 @@ const Auth = (() => {
 
     errEl.classList.add('hidden');
     errEl.textContent = '';
-    btn.disabled = true;
+    btn.disabled    = true;
     btn.textContent = 'Signing in…';
 
     try {
@@ -56,8 +82,52 @@ const Auth = (() => {
     } catch (err) {
       errEl.textContent = err.message;
       errEl.classList.remove('hidden');
-      btn.disabled = false;
+      btn.disabled    = false;
       btn.textContent = 'Sign In';
+    }
+  }
+
+  async function submitSignup(e) {
+    e.preventDefault();
+    const btn     = document.getElementById('signup-btn');
+    const errEl   = document.getElementById('signup-error');
+    const email    = document.getElementById('signup-email').value.trim();
+    const password = document.getElementById('signup-password').value;
+    const confirm  = document.getElementById('signup-confirm').value;
+
+    errEl.classList.add('hidden');
+    errEl.textContent = '';
+
+    if (password.length < 8) {
+      errEl.textContent = 'Password must be at least 8 characters';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    if (password !== confirm) {
+      errEl.textContent = 'Passwords do not match';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    btn.disabled    = true;
+    btn.textContent = 'Creating account…';
+
+    try {
+      const res  = await fetch('/api/auth/signup', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Signup failed');
+      // Signup auto-logs in via session — go straight to app
+      showApp();
+      App.init();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+      btn.disabled    = false;
+      btn.textContent = 'Create Admin Account';
     }
   }
 
@@ -65,11 +135,13 @@ const Auth = (() => {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     showLogin();
     document.getElementById('login-password').value = '';
+    // Re-check status in case tabs need to show
+    check();
   }
 
   document.addEventListener('DOMContentLoaded', check);
 
-  return { submitLogin, logout };
+  return { submitLogin, submitSignup, logout, showMode };
 })();
 
 const App = (() => {
@@ -98,6 +170,7 @@ const App = (() => {
     brandTab:        'overview',
     workspaceState:  WS.EMPTY,
     workspaceTab:    'board',
+    speedMode:       'balanced',
     generation: {
       active:    false,
       total:     0,
@@ -294,10 +367,6 @@ const App = (() => {
   function closeModal(id) {
     document.getElementById(id)?.classList.add('hidden');
   }
-  function closeModalOnOverlay(id, e) {
-    if (e.target === document.getElementById(id)) closeModal(id);
-  }
-
   // ── Brands ──────────────────────────────────────────────────
   async function loadBrands() {
     try {
@@ -670,7 +739,7 @@ const App = (() => {
         ${ad.image_url ? `<img src="${ad.image_url}" alt="Ad" loading="lazy" />` : ''}
         <div class="board-card-overlay">
           <button class="board-card-action" onclick="event.stopPropagation();App.downloadAd('${ad.image_url}','${ad.id}')">↓</button>
-          <button class="board-card-action" onclick="event.stopPropagation();App.approveAd('${ad.id}',this)">✓</button>
+          <button class="board-card-action" onclick="event.stopPropagation();App.approveAd('${ad.id}')">✓</button>
         </div>
       </div>
       <div class="board-card-footer">
@@ -897,6 +966,41 @@ const App = (() => {
     }
   }
 
+  // ── Speed Mode ───────────────────────────────────────────────
+  function selectSpeedMode(mode) {
+    state.speedMode = mode;
+    // Sync both selectors (remix + concepts share one speed state)
+    document.querySelectorAll('.speed-selector .speed-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+  }
+
+  // ── Generation elapsed timer ─────────────────────────────────
+  const _genTimer = {
+    _iv:    null,
+    _start: 0,
+    start() {
+      this._start = Date.now();
+      this._tick();
+      this._iv = setInterval(() => this._tick(), 1000);
+    },
+    stop() {
+      clearInterval(this._iv);
+      this._iv = null;
+    },
+    _tick() {
+      const secs = Math.floor((Date.now() - this._start) / 1000);
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      const el = document.getElementById('ws-gen-timer');
+      if (el) el.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+    },
+    reset() {
+      const el = document.getElementById('ws-gen-timer');
+      if (el) el.textContent = '0:00';
+    },
+  };
+
   function _updateGenerateAllLabel() {
     const plan = state.concepts.plan || [];
     if (!plan.length) return;
@@ -924,6 +1028,8 @@ const App = (() => {
     setWorkspaceState(WS.GENERATING);  // switches to board tab, shows pulsing indicator
     addSkeletonCards(n, 0);
     startGenerationProgress(n);
+    _genTimer.reset();
+    _genTimer.start();
 
     const formData = new FormData();
     formData.append('brand_id',        state.activeBrand.id);
@@ -933,6 +1039,7 @@ const App = (() => {
     formData.append('instructions',    getVal('remix-instructions'));
     formData.append('aspect_ratio',    state.remix.aspectRatio);
     formData.append('count',           n);
+    formData.append('speed_mode',      state.speedMode);
 
     let completedCount = 0;
 
@@ -962,6 +1069,7 @@ const App = (() => {
       document.querySelectorAll('.board-card.skeleton').forEach(s => s.remove());
       toast('Generation failed: ' + err.message, 'error');
     } finally {
+      _genTimer.stop();
       resetBtn(btn, 'btn-remix-label', '✦ Generate');
       endGenerationProgress();
       setWorkspaceState(WS.BOARD);  // generation complete
@@ -1086,6 +1194,8 @@ const App = (() => {
     setWorkspaceState(WS.GENERATING);  // hides concept planner, shows board with live indicator
     addSkeletonCards(totalAds, 0);
     startGenerationProgress(totalAds);
+    _genTimer.reset();
+    _genTimer.start();
 
     let globalIdx   = 0;
     let completedTotal = 0;
@@ -1127,6 +1237,7 @@ const App = (() => {
         formData.append('instructions',  instructions);
         formData.append('aspect_ratio',  document.getElementById('concept-ratio')?.value || 'square');
         formData.append('count',         n);
+        formData.append('speed_mode',    state.speedMode);
 
         let conceptCompleted = 0;
 
@@ -1154,6 +1265,7 @@ const App = (() => {
       document.querySelectorAll('.board-card.skeleton').forEach(s => s.remove());
       toast('Generation failed: ' + e.message, 'error');
     } finally {
+      _genTimer.stop();
       resetBtn(btn, 'btn-generate-all-label', 'Generate All');
       endGenerationProgress();
       setWorkspaceState(WS.BOARD);  // generation complete — board is now primary
@@ -1322,7 +1434,7 @@ const App = (() => {
     a.click();
   }
 
-  async function approveAd(adId, btn) {
+  async function approveAd(adId) {
     try {
       const { data } = await api.put(`/ads/${adId}/status`, { status: 'approved' });
       const idx = state.boardAds.findIndex(a => a.id === data.id);
@@ -1539,7 +1651,7 @@ const App = (() => {
     switchWorkspaceTab,
 
     // Panel
-    switchTab, selectRatio, adjustVolume, onVolumeInput, onConceptCountInput, toggleFormat,
+    switchTab, selectRatio, adjustVolume, onVolumeInput, onConceptCountInput, toggleFormat, selectSpeedMode,
 
     // Remix
     triggerRemixGenerate,

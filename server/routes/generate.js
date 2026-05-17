@@ -102,7 +102,7 @@ router.post(
       }
     };
 
-    const { brand_id, instructions, aspect_ratio, count, campaign_id } = req.body;
+    const { brand_id, instructions, aspect_ratio, count, campaign_id, speed_mode } = req.body;
     const n = parseInt(count, 10) || 5;
 
     if (!brand_id || !req.files?.reference_image?.[0] || !req.files?.product_image?.[0]) {
@@ -142,6 +142,7 @@ router.post(
         aspectRatio:        aspect_ratio || 'square',
         count:              n,
         campaignId:         campaign_id  || null,
+        speedMode:          speed_mode   || 'balanced',
         onProgress:         (item) => sendEvent(item),
       });
 
@@ -149,6 +150,8 @@ router.post(
         type:             'done',
         batch_id:         result.batch_id,
         count:            n,
+        speed_mode:       result.speed_mode,
+        generation_time:  result.actual_generation_time_seconds,
         creativeStrategy: result.creativeStrategy,
       });
     } catch (err) {

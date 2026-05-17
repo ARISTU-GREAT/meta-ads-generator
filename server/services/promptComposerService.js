@@ -34,6 +34,17 @@ function parseJSON(text) {
 // Sends reference ad + product image to gpt-4.1-mini vision in ONE call.
 // Returns structured strategy JSON with enhanced_prompt ready for gpt-image-1.
 // ─────────────────────────────────────────────────────────────────────────────
+function getPromptStyleInstruction(style, aspectRatio) {
+  switch (style) {
+    case 'draft':
+      return 'Write a concise 2-3 sentence image generation prompt. Be direct and specific — focus only on layout, product placement, and key visual treatment.';
+    case 'quality':
+      return `Write a highly detailed 5-8 sentence image generation prompt. Include: (1) exact layout type, panel structure, visual hierarchy, (2) precise product description from Image 2 with material, finish, and scale, (3) full color palette, lighting, shadow, and background treatment, (4) typography: font weight feel, text density, headline scale, CTA energy matching brand identity, (5) detailed people casting directive if applicable, (6) do not copy any text logos or recognizable brand elements from the reference, (7) atmosphere, mood — make it feel premium and conversion-ready, (8) Meta ${aspectRatio} format, photorealistic lighting, hero composition`;
+    default: // balanced
+      return `Write a detailed 4-6 sentence image generation prompt. Must include: (1) exact layout type and composition recreation, (2) precise description of the product from Image 2 as the hero visual, (3) color palette and background matching the reference energy, (4) typography: apply brand font feel, headline weight, text density, and CTA styling matching the brand's headline_style, (5) people casting directive if applicable, (6) do not copy any text logos or recognizable brand elements from the reference, (7) Meta ${aspectRatio} format, premium production quality, photorealistic lighting`;
+  }
+}
+
 async function composeCreativeStrategy({
   openai,
   brand,
@@ -43,6 +54,7 @@ async function composeCreativeStrategy({
   productImageMime,
   instructions,
   aspectRatio,
+  promptStyle = 'balanced',
 }) {
   const brandLines = [
     brand.name            && `Brand name: ${brand.name}`,
@@ -101,7 +113,7 @@ Return this exact JSON structure:
   "archetype_protection": null or "Cast completely different people with completely different faces and appearance while preserving only the archetype role: [role]",
   "ad_energy": "one of: luxury | playful | urgent | professional | inspirational | bold | minimal | edgy",
   "creative_strategy": "one sentence: the core creative approach and why it will convert",
-  "enhanced_prompt": "Write a detailed 4-6 sentence image generation prompt for gpt-image-1. Must include: (1) exact layout type and composition recreation, (2) precise description of the product from Image 2 as the hero visual, (3) color palette and background matching the reference energy, (4) typography: apply brand font feel, headline weight, text density, and CTA styling matching the brand's headline_style, (5) people casting directive if applicable, (6) 'do not copy any text logos or recognizable brand elements from the reference', (7) Meta ${aspectRatio} format, premium production quality, photorealistic lighting"
+  "enhanced_prompt": "${getPromptStyleInstruction(promptStyle, aspectRatio)}"
 }`;
 
   const response = await openai.chat.completions.create({

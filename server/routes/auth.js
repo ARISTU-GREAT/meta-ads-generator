@@ -1,46 +1,75 @@
-const express  = require('express');
-const bcrypt   = require('bcryptjs');
-const router   = express.Router();
+const express = require('express');
+const bcrypt  = require('bcryptjs');
+const router  = express.Router();
+const { query } = require('../db');
 const { asyncHandler, AppError } = require('../utils/errors');
 
-// Compare submitted password against ADMIN_PASSWORD env var.
-// We support both plain-text (fast MVP) and bcrypt hashes transparently:
-// if ADMIN_PASSWORD starts with "$2" it is treated as a bcrypt hash,
-// otherwise a constant-time string comparison is used.
-async function verifyPassword(submitted) {
-  const stored = process.env.ADMIN_PASSWORD || '';
-  if (!stored) return false;
-  if (stored.startsWith('$2')) {
-    return bcrypt.compare(submitted, stored);
-  }
-  // Constant-time compare to resist timing attacks even for plain-text passwords
-  const a = Buffer.from(submitted);
-  const b = Buffer.from(stored);
-  if (a.length !== b.length) {
-    // Still do a dummy compare so timing is consistent
-    bcrypt.compareSync(submitted, '$2b$10$invalidhashpadding000000000000000000000000000000000000000');
-    return false;
-  }
-  return require('crypto').timingSafeEqual(a, b);
+const BCRYPT_ROUNDS = 12;
+
+// ── Helpers ───────────────────────────────────────────────────
+
+async function getAdmin() {
+  const { rows } = await query('SELECT * FROM users WHERE role = $1 LIMIT 1', ['admin']);
+  return rows[0] || null;
 }
 
-// POST /api/auth/login
-router.post('/login', asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-  const adminEmail = (process.env.ADMIN_EMAIL || '').toLowerCase().trim();
+function sessionFor(req, user) {
+  req.session.user_id = user.id;
+  req.session.email   = user.email;
+  req.session.role    = user.role;
+}
 
-  if (!email || !password) throw new AppError('Email and password are required', 400);
-  if (email.toLowerCase().trim() !== adminEmail) throw new AppError('Invalid credentials', 401);
-
-  const ok = await verifyPassword(password);
-  if (!ok) throw new AppError('Invalid credentials', 401);
-
-  req.session.authenticated = true;
-  req.session.email = adminEmail;
-  res.json({ success: true, email: adminEmail });
+// ── GET /api/auth/status ─────────────────────────────────────
+// Returns whether the admin account exists so the frontend knows
+// which form to show on first load.
+router.get('/status', asyncHandler(async (_req, res) => {
+  const admin = await getAdmin();
+  res.json({ hasAdmin: !!admin });
 }));
 
-// POST /api/auth/logout
+// ── POST /api/auth/signup ────────────────────────────────────
+// Only allowed when no admin exists yet (enforced server-side).
+router.post('/signup', asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) throw new AppError('Email and password are required', 400);
+  if (password.length < 8)  throw new AppError('Password must be at least 8 characters', 400);
+
+  const existing = await getAdmin();
+  if (existing) throw new AppError('Admin account already exists.', 409);
+
+  const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const { rows } = await query(
+    `INSERT INTO users (email, password_hash, role)
+     VALUES ($1, $2, 'admin') RETURNING id, email, role, created_at`,
+    [email.toLowerCase().trim(), hash]
+  );
+  const user = rows[0];
+
+  sessionFor(req, user);
+  res.status(201).json({ success: true, email: user.email, role: user.role });
+}));
+
+// ── POST /api/auth/login ─────────────────────────────────────
+router.post('/login', asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) throw new AppError('Email and password are required', 400);
+
+  const { rows } = await query(
+    'SELECT * FROM users WHERE email = $1',
+    [email.toLowerCase().trim()]
+  );
+  const user = rows[0];
+
+  // Always run bcrypt even on miss to prevent timing attacks
+  const hash    = user?.password_hash || '$2b$12$invalidhashpadding00000000000000000000000000000000000';
+  const matches = await bcrypt.compare(password, hash);
+  if (!user || !matches) throw new AppError('Invalid credentials', 401);
+
+  sessionFor(req, user);
+  res.json({ success: true, email: user.email, role: user.role });
+}));
+
+// ── POST /api/auth/logout ────────────────────────────────────
 router.post('/logout', (req, res) => {
   req.session.destroy(() => {
     res.clearCookie('connect.sid');
@@ -48,12 +77,20 @@ router.post('/logout', (req, res) => {
   });
 });
 
-// GET /api/auth/me
-router.get('/me', (req, res) => {
-  if (req.session?.authenticated) {
-    return res.json({ authenticated: true, email: req.session.email });
+// ── GET /api/auth/me ─────────────────────────────────────────
+router.get('/me', asyncHandler(async (req, res) => {
+  if (!req.session?.user_id) {
+    return res.json({ authenticated: false });
   }
-  res.json({ authenticated: false });
-});
+  const { rows } = await query(
+    'SELECT id, email, role, created_at FROM users WHERE id = $1',
+    [req.session.user_id]
+  );
+  if (!rows[0]) {
+    req.session.destroy(() => {});
+    return res.json({ authenticated: false });
+  }
+  res.json({ authenticated: true, email: rows[0].email, role: rows[0].role });
+}));
 
 module.exports = router;

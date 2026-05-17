@@ -39,6 +39,30 @@ const SIZE_MAP = {
   landscape: '1536x1024',
 };
 
+// Speed mode configuration — model and concurrency scale with quality preference
+const SPEED_CONFIGS = {
+  fast_draft: {
+    model:       () => process.env.OPENAI_IMAGE_MODEL_FAST    || 'gpt-image-1',
+    concurrency: 3,
+    promptStyle: 'draft',   // shorter prompt from composer
+  },
+  balanced: {
+    model:       () => process.env.OPENAI_IMAGE_MODEL_BALANCED || 'gpt-image-1',
+    concurrency: 2,
+    promptStyle: 'balanced',
+  },
+  best_quality: {
+    model:       () => process.env.OPENAI_IMAGE_MODEL_QUALITY  || 'gpt-image-2',
+    concurrency: 2,
+    promptStyle: 'quality', // richer prompt from composer
+  },
+};
+
+function getSpeedConfig(speedMode) {
+  return SPEED_CONFIGS[speedMode] || SPEED_CONFIGS.balanced;
+}
+
+// Legacy helper kept for remixGenerate (single-image path, not used in production UI)
 const imageModel = () => process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
 
 // V1 baseline — used when prompt composer is unavailable or fails
@@ -264,10 +288,13 @@ async function remixGenerateBatch({
   instructions,
   aspectRatio,
   count,
+  speedMode = 'balanced',
 }) {
-  const openai  = getOpenAI();
-  const batchId = crypto.randomUUID();
-  const n       = Math.max(1, Math.min(5, parseInt(count, 10) || 1));
+  const openai     = getOpenAI();
+  const batchId    = crypto.randomUUID();
+  const n          = Math.max(1, Math.min(5, parseInt(count, 10) || 1));
+  const speedCfg   = getSpeedConfig(speedMode);
+  const batchStart = Date.now();
 
   // ── 1. Brand context ──────────────────────────────────────────────────────
   const { rows: brandRows } = await query(
@@ -290,6 +317,7 @@ async function remixGenerateBatch({
       referenceImagePath, referenceImageMime,
       productImagePath,   productImageMime,
       instructions, aspectRatio,
+      promptStyle: speedCfg.promptStyle,
     });
     basePrompt   = strategy.enhanced_prompt;
     composerUsed = true;
@@ -308,7 +336,7 @@ async function remixGenerateBatch({
     ? '[Image 1 = reference ad for layout/style. Image 2 = product to feature.]\n\n'
     : '';
 
-  const model    = imageModel();
+  const model    = speedCfg.model();
   const size     = SIZE_MAP[aspectRatio] || '1024x1024';
   const adFormat = aspectRatio === 'portrait'  ? 'story'
                  : aspectRatio === 'landscape' ? 'landscape'
@@ -358,6 +386,9 @@ async function remixGenerateBatch({
       batch_id:           batchId,
       variation_index:    i + 1,
       variation_directive: n > 1 ? VARIATION_DIRECTIVES[i] : null,
+      speed_mode:         speedMode,
+      image_model:        model,
+      concurrency:        speedCfg.concurrency,
     };
 
     const { rows } = await query(
@@ -370,7 +401,7 @@ async function remixGenerateBatch({
         brandId, prompt, imageUrl, imageFilePath,
         'meta', adFormat,
         composerUsed ? `gpt-4.1-mini + ${model}` : model,
-        JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: i + 1, composer_used: composerUsed, image_model: model }),
+        JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: i + 1, composer_used: composerUsed, image_model: model, speed_mode: speedMode }),
         'draft',
         JSON.stringify(metadataPayload),
       ]
@@ -383,8 +414,8 @@ async function remixGenerateBatch({
     };
   });
 
-  // ── 4. Run with concurrency limit of 2 ───────────────────────────────────
-  const rawResults = await runWithConcurrency(tasks, 2);
+  // ── 4. Run with speed-mode concurrency ───────────────────────────────────
+  const rawResults = await runWithConcurrency(tasks, speedCfg.concurrency);
 
   const creativeStrategy = strategy
     ? {
@@ -407,8 +438,10 @@ async function remixGenerateBatch({
     : { composerUsed: false, imageModel: model, enhanced_prompt: basePrompt };
 
   return {
-    batch_id: batchId,
-    count:    n,
+    batch_id:                      batchId,
+    count:                         n,
+    speed_mode:                    speedMode,
+    actual_generation_time_seconds: (Date.now() - batchStart) / 1000,
     results:  rawResults.map((r, i) =>
       r && r.failed
         ? { success: false, variationIndex: i + 1, error: r.error }
@@ -435,11 +468,14 @@ async function remixGenerateBatchStream({
   aspectRatio,
   count,
   campaignId,
+  speedMode = 'balanced',
   onProgress,
 }) {
-  const openai  = getOpenAI();
-  const batchId = crypto.randomUUID();
-  const n       = Math.max(1, Math.min(20, parseInt(count, 10) || 1));
+  const openai     = getOpenAI();
+  const batchId    = crypto.randomUUID();
+  const n          = Math.max(1, Math.min(20, parseInt(count, 10) || 1));
+  const speedCfg   = getSpeedConfig(speedMode);
+  const batchStart = Date.now();
 
   const { rows: brandRows } = await query(
     `SELECT id, name, industry, description, primary_color, secondary_color,
@@ -460,6 +496,7 @@ async function remixGenerateBatchStream({
       referenceImagePath, referenceImageMime,
       productImagePath,   productImageMime,
       instructions, aspectRatio,
+      promptStyle: speedCfg.promptStyle,
     });
     basePrompt   = strategy.enhanced_prompt;
     composerUsed = true;
@@ -473,7 +510,7 @@ async function remixGenerateBatchStream({
     ? '[Image 1 = reference ad for layout/style. Image 2 = product to feature.]\n\n'
     : '';
 
-  const model    = imageModel();
+  const model    = speedCfg.model();
   const size     = SIZE_MAP[aspectRatio] || '1024x1024';
   const adFormat = aspectRatio === 'portrait'  ? 'story'
                  : aspectRatio === 'landscape' ? 'landscape'
@@ -515,13 +552,16 @@ async function remixGenerateBatchStream({
       batch_id:           batchId,
       variation_index:    i + 1,
       variation_directive: n > 1 ? VARIATION_DIRECTIVES[i % VARIATION_DIRECTIVES.length] : null,
+      speed_mode:         speedMode,
+      image_model:        model,
+      concurrency:        speedCfg.concurrency,
     };
 
     const insertParams = [
       brandId, prompt, imageUrl, imageFilePath,
       'meta', adFormat,
       composerUsed ? `gpt-4.1-mini + ${model}` : model,
-      JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: i + 1, composer_used: composerUsed, image_model: model }),
+      JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: i + 1, composer_used: composerUsed, image_model: model, speed_mode: speedMode }),
       'draft',
       JSON.stringify(metadataPayload),
     ];
@@ -563,7 +603,7 @@ async function remixGenerateBatchStream({
       }
     : { composerUsed: false, imageModel: model, enhanced_prompt: basePrompt };
 
-  const rawResults = await runWithConcurrency(tasks, 2, (each) => {
+  const rawResults = await runWithConcurrency(tasks, speedCfg.concurrency, (each) => {
     if (onProgress) {
       onProgress(each.success
         ? { type: 'progress', success: true,  ...each.result }
@@ -573,8 +613,10 @@ async function remixGenerateBatchStream({
   });
 
   return {
-    batch_id: batchId,
-    count:    n,
+    batch_id:                      batchId,
+    count:                         n,
+    speed_mode:                    speedMode,
+    actual_generation_time_seconds: (Date.now() - batchStart) / 1000,
     results:  rawResults.map((r, i) =>
       r?.failed
         ? { success: false, variationIndex: i + 1, error: r.error }
