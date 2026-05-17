@@ -54,8 +54,9 @@ async function createTestFrame() {
 // ── Import handler ────────────────────────────────────────────────────────────
 
 async function handleImport(msg) {
-  var rawJson      = msg.json;
-  var importImages = !!msg.importImages;
+  var rawJson        = msg.json;
+  var importImages   = !!msg.importImages;
+  var includeLockedRef = !!msg.includeLockedRef;
 
   if (!rawJson) {
     figma.ui.postMessage({ type: 'error', message: 'No JSON provided', stack: '' });
@@ -84,7 +85,7 @@ async function handleImport(msg) {
     });
     return;
   }
-  await importCreative(layout, importImages);
+  await importCreative(layout, importImages, includeLockedRef);
 }
 
 // ── Image fetching ────────────────────────────────────────────────────────────
@@ -201,7 +202,7 @@ function getTextAlign(layer) {
 
 // ── Main import ───────────────────────────────────────────────────────────────
 
-async function importCreative(layout, importImages) {
+async function importCreative(layout, importImages, includeLockedRef) {
   var layers = resolveLayers(layout);
   var canvas = resolveCanvas(layout);
   var W      = Math.max(1, canvas.width);
@@ -346,6 +347,34 @@ async function importCreative(layout, importImages) {
         }
         node = txt;
 
+      } else if (type === 'ELLIPSE') {
+        var ellipse = figma.createEllipse();
+        ellipse.name = String(layer.name || 'Ellipse');
+        ellipse.x = x; ellipse.y = y;
+        ellipse.resize(w, h);
+        if (typeof layer.opacity === 'number' && isFinite(layer.opacity)) {
+          ellipse.opacity = Math.max(0, Math.min(1, layer.opacity));
+        }
+        var eFills = parseFills(layer.fills);
+        ellipse.fills = eFills.length ? eFills : [{ type: 'SOLID', color: { r: 0.88, g: 0.88, b: 0.9 } }];
+        node = ellipse;
+
+      } else if (type === 'LINE') {
+        // Render as a thin rectangle — LINE nodes in Figma have no height API from scratch
+        var lineRect = figma.createRectangle();
+        lineRect.name = String(layer.name || 'Line');
+        lineRect.x = x; lineRect.y = y;
+        var lineH = (layer.strokeWeight != null && isFinite(Number(layer.strokeWeight)))
+          ? Math.max(1, Number(layer.strokeWeight))
+          : Math.max(1, h);
+        lineRect.resize(w, lineH);
+        var lFills = parseFills(layer.fills);
+        if (!lFills.length && layer.color) {
+          lFills = [{ type: 'SOLID', color: hexToRGB(layer.color) }];
+        }
+        lineRect.fills = lFills.length ? lFills : [{ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }];
+        node = lineRect;
+
       } else {
         console.warn('[AdFlow] unsupported type "' + type + '" — skipping "' + String(layer.name || '') + '"');
         skipped++;
@@ -371,6 +400,24 @@ async function importCreative(layout, importImages) {
       } catch (appendErr) {
         console.error('[AdFlow] appendChild failed: ' + appendErr.message);
       }
+    }
+  }
+
+  // Locked reference image — editable mode only, placed at bottom of stack
+  if (includeLockedRef && layout.flat_image_url && typeof layout.flat_image_url === 'string') {
+    figma.ui.postMessage({ type: 'progress', message: 'Fetching reference image…' });
+    var refFill = await fetchImageFill(layout.flat_image_url);
+    if (refFill) {
+      var refFrame = figma.createFrame();
+      refFrame.name = '⊘ Reference (locked)';
+      refFrame.x = 0; refFrame.y = 0;
+      refFrame.resize(W, H);
+      refFrame.clipsContent = false;
+      refFrame.fills = [refFill];
+      refFrame.opacity = 0.3;
+      refFrame.locked  = true;
+      frame.insertChild(0, refFrame); // bottom of stack
+      console.log('[AdFlow] locked reference layer added');
     }
   }
 

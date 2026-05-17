@@ -2020,6 +2020,15 @@ body {
   color: #9d91ff;
 }
 .btn-studio-figma:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-studio-figma-editable {
+  border-color: rgba(16,185,129,0.35);
+  background: rgba(16,185,129,0.08);
+  color: #10b981;
+}
+.btn-studio-figma-editable:hover:not(:disabled) {
+  background: rgba(16,185,129,0.18);
+  color: #34d399;
+}
 .studio-export-hint {
   font-size: 0.72rem;
   color: var(--text-3);

@@ -217,6 +217,17 @@
   </div>
 
   <div class="safe-mode-row">
+    <label class="toggle-wrap" title="Include Locked Reference: place the flat ad image as a locked layer at the bottom">
+      <input type="checkbox" id="locked-ref-toggle" checked />
+      <span class="toggle-track"></span>
+    </label>
+    <div>
+      <div class="safe-mode-label"><strong>Include Locked Reference</strong> — flat image at bottom</div>
+      <div class="safe-mode-hint">Adds original ad as locked layer (30 % opacity) for tracing · editable mode only</div>
+    </div>
+  </div>
+
+  <div class="safe-mode-row">
     <label class="toggle-wrap" title="Safe Mode: Inter Regular only, no grouping">
       <input type="checkbox" id="safe-mode-toggle" />
       <span class="toggle-track"></span>
@@ -254,6 +265,7 @@
     const labelEl         = document.getElementById('btn-label');
     const safeModeEl      = document.getElementById('safe-mode-toggle');
     const importImagesEl  = document.getElementById('import-images-toggle');
+    const lockedRefEl     = document.getElementById('locked-ref-toggle');
 
     // Safe mode disables image fetching — sync the import-images toggle
     safeModeEl.addEventListener('change', () => {
@@ -337,10 +349,11 @@
 
       const safeMode     = safeModeEl.checked;
       const importImages = importImagesEl.checked && !safeMode;
+      const includeLockedRef = lockedRefEl.checked && !safeMode;
       setLoading(true);
       setStatus('progress', importImages ? 'Sending to Figma sandbox (images enabled)…' : 'Sending to Figma sandbox…');
 
-      parent.postMessage({ pluginMessage: { type: 'import', json: raw, safeMode, importImages } }, '*');
+      parent.postMessage({ pluginMessage: { type: 'import', json: raw, safeMode, importImages, includeLockedRef } }, '*');
     }
 
     // Cmd/Ctrl+Enter shortcut

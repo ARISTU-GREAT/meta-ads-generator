@@ -1720,6 +1720,47 @@ const App = (() => {
     }
   }
 
+  // ── Editable export — GPT-4o vision layer reconstruction ────
+  async function exportToFigmaEditable() {
+    const ad = state.studio.ad;
+    if (!ad?.id) return;
+
+    const hintEl = document.getElementById('studio-export-hint');
+    const btnEl  = document.getElementById('btn-export-figma-editable');
+    const fastEl = document.getElementById('btn-export-figma');
+    if (btnEl)  { btnEl.disabled = true;  btnEl.textContent = 'Analyzing…'; }
+    if (fastEl) { fastEl.disabled = true; }
+    if (hintEl) hintEl.textContent = 'Running AI vision analysis — takes ~15s…';
+
+    try {
+      const res = await fetch(`/api/ads/${ad.id}/layout/export?mode=editable`, { credentials: 'include' });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.error || b.message || msg; } catch {}
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `creative-layout-${ad.id.slice(0, 8)}-editable.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (hintEl) hintEl.textContent = 'Editable layout downloaded — import via Figma plugin';
+    } catch (err) {
+      console.error('[exportToFigmaEditable] failed:', err.message);
+      if (hintEl) hintEl.textContent = err.message.includes('no generated image') ? 'Generate the ad first' : ('AI analysis failed: ' + err.message);
+    } finally {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 38 57" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><path d="M19 28.5A9.5 9.5 0 1 1 28.5 19 9.5 9.5 0 0 1 19 28.5Z" fill="currentColor"/><path d="M9.5 57A9.5 9.5 0 0 0 19 47.5V38H9.5A9.5 9.5 0 0 0 0 47.5 9.5 9.5 0 0 0 9.5 57Z" fill="currentColor"/><path d="M0 28.5A9.5 9.5 0 0 0 9.5 38H19V19H9.5A9.5 9.5 0 0 0 0 28.5Z" fill="currentColor"/><path d="M0 9.5A9.5 9.5 0 0 0 9.5 19H19V0H9.5A9.5 9.5 0 0 0 0 9.5Z" fill="currentColor"/><path d="M19 0V19H28.5A9.5 9.5 0 0 0 28.5 0Z" fill="currentColor"/></svg> ✦ Editable Export (AI)`;
+      }
+      if (fastEl) fastEl.disabled = false;
+    }
+  }
+
   // ── Quick board card actions ─────────────────────────────────
   function downloadAd(adId) {
     const ad  = state.boardAds.find(a => a.id === adId);
@@ -2146,7 +2187,7 @@ const App = (() => {
 
     // Studio
     closeStudio, downloadStudioAd, approveStudioAd, deleteStudioAd, remixThisAd,
-    approveAndLearn, rejectAndLearn, exportToFigma,
+    approveAndLearn, rejectAndLearn, exportToFigma, exportToFigmaEditable,
 
     // Brand Memory
     filterMemory, analyzeAllAssets, generateNewAngles,

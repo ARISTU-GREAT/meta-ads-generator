@@ -11,7 +11,19 @@
  * Layers use Figma-style node types: RECTANGLE | IMAGE | TEXT
  */
 
+const OpenAI  = require('openai');
 const { query } = require('../db');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OpenAI client (lazy — only initialised when vision analysis is requested)
+// ─────────────────────────────────────────────────────────────────────────────
+let _openai = null;
+function getOpenAI() {
+  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
+const VISION_MODEL = () => process.env.OPENAI_VISION_MODEL || 'gpt-4o';
 
 const CANVAS_SIZES = {
   square:    { width: 1080, height: 1080 },
@@ -326,6 +338,161 @@ function buildLayoutFromStrategy(strategy, brand, aspectRatio, adId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// V2 — AI vision analysis: extract editable layer structure from generated image
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _visionPrompt(W, H, brandName, layoutType) {
+  return `You are a Figma design engineer.
+Analyze this advertisement image (${W}×${H} px) and extract every visible component as a Figma layer.
+Brand: "${brandName}". Layout type: "${layoutType}".
+
+Respond with ONLY valid JSON — no markdown fences, no explanation:
+{
+  "layers": [ ...layer objects ordered bottom (background) to top (foreground)... ]
+}
+
+Layer object schema:
+{
+  "type":        "RECTANGLE" | "TEXT" | "IMAGE" | "ELLIPSE" | "LINE",
+  "name":        "short descriptive name",
+  "role":        "background"|"overlay"|"product"|"logo"|"headline"|"subheadline"|"body"|"cta_bg"|"cta_text"|"badge"|"divider"|"panel"|"decorative",
+  "x":           <integer, px from left>,
+  "y":           <integer, px from top>,
+  "width":       <integer, px>,
+  "height":      <integer, px>
+}
+
+Additional required fields by type:
+TEXT  → "text" (exact visible string), "color" (hex), "fontSize" (pt int), "fontWeight" (400|700), "textAlign" ("left"|"center"|"right")
+RECTANGLE → "fills": [{"type":"SOLID","color":"#hex"}], "cornerRadius": int, "opacity": float 0-1
+ELLIPSE   → "fills": [{"type":"SOLID","color":"#hex"}], "opacity": float 0-1
+LINE      → "color": "#hex", "strokeWeight": int
+
+Rules:
+- Extract EVERY visible text string as a separate TEXT layer (headline, subheadline, CTA text, body copy, labels, badges)
+- Include the main background as a RECTANGLE with detected fill color
+- Mark any dark/light overlay as RECTANGLE with opacity 0.3–0.6
+- CTA button = two layers: RECTANGLE (role cta_bg) + TEXT (role cta_text)
+- Product/hero image region = IMAGE layer
+- Be precise: text bounds should tightly wrap the visible text
+- Use pixel coordinates in the ${W}×${H} space`;
+}
+
+function _normalizeLayer(layer, W, H) {
+  const type = String(layer.type || 'RECTANGLE').toUpperCase();
+  const x      = Math.max(0, Math.min(W - 1, Math.round(Number(layer.x)    || 0)));
+  const y      = Math.max(0, Math.min(H - 1, Math.round(Number(layer.y)    || 0)));
+  const width  = Math.max(1, Math.min(W - x,  Math.round(Number(layer.width)  || 100)));
+  const height = Math.max(1, Math.min(H - y,  Math.round(Number(layer.height) || 40)));
+
+  const base = {
+    id:   `v2_${Math.random().toString(36).slice(2, 9)}`,
+    type,
+    name: String(layer.name || type),
+    role: String(layer.role || 'decorative'),
+    x, y, width, height,
+  };
+
+  if (type === 'TEXT') {
+    const rawSize = Number(layer.fontSize) || 32;
+    base.content   = String(layer.text || layer.content || '');
+    base.style = {
+      fontFamily: 'Inter',
+      fontWeight: Number(layer.fontWeight) || 400,
+      fontSize:   Math.max(8, Math.min(300, rawSize)),
+      color:      String(layer.color || '#000000'),
+      textAlign:  String(layer.textAlign || 'left'),
+    };
+  }
+
+  if (type === 'RECTANGLE' || type === 'ELLIPSE') {
+    let color = '#888888';
+    if (layer.fills && layer.fills[0]) {
+      color = layer.fills[0].color || color;
+    } else if (layer.color) {
+      color = layer.color;
+    }
+    base.fills = [{ type: 'SOLID', color }];
+    if (layer.cornerRadius != null) base.cornerRadius = Math.max(0, Number(layer.cornerRadius) || 0);
+    if (layer.opacity      != null) base.opacity       = Math.max(0, Math.min(1, Number(layer.opacity)));
+  }
+
+  if (type === 'LINE') {
+    base.fills        = [{ type: 'SOLID', color: String(layer.color || '#888888') }];
+    base.strokeWeight = Math.max(1, Number(layer.strokeWeight) || 1);
+    base.height       = Math.max(1, base.height);
+  }
+
+  return base;
+}
+
+async function analyzeAdLayout(ad, brand) {
+  const openai = getOpenAI();
+
+  const rawMeta   = ad.metadata;
+  const meta      = rawMeta ? (typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta) : {};
+  const strategy  = meta.strategy || {};
+  const aspectRatio = strategy.aspect_ratio || meta.aspect_ratio || 'square';
+  const canvas    = CANVAS_SIZES[aspectRatio] || CANVAS_SIZES.square;
+  const { width: W, height: H } = canvas;
+
+  const brandName  = brand.name        || 'Brand';
+  const layoutType = strategy.layout_type || 'product_focus';
+
+  console.log(`[analyzeAdLayout] ad=${ad.id} canvas=${W}x${H} model=${VISION_MODEL()}`);
+
+  const completion = await openai.chat.completions.create({
+    model:    VISION_MODEL(),
+    messages: [{
+      role:    'user',
+      content: [
+        { type: 'image_url', image_url: { url: ad.image_url, detail: 'high' } },
+        { type: 'text',      text: _visionPrompt(W, H, brandName, layoutType) },
+      ],
+    }],
+    response_format: { type: 'json_object' },
+    max_tokens:  4000,
+    temperature: 0.1,
+  });
+
+  const content = completion.choices[0].message.content;
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    const m = content.match(/\{[\s\S]+\}/);
+    if (m) parsed = JSON.parse(m[0]);
+    else throw new Error('Vision API returned non-JSON: ' + content.slice(0, 200));
+  }
+
+  const rawLayers = Array.isArray(parsed.layers) ? parsed.layers : [];
+  if (!rawLayers.length) throw new Error('Vision analysis returned 0 layers');
+
+  const layers = rawLayers.map(l => _normalizeLayer(l, W, H));
+
+  return {
+    version:          '2.0',
+    schema:           'creative-layout',
+    figma_exportable: true,
+    export_mode:      'editable',
+    meta: {
+      ad_id:        ad.id,
+      brand_name:   brand.name || '',
+      layout_type:  layoutType,
+      aspect_ratio: aspectRatio,
+      analyzed_by:  VISION_MODEL(),
+    },
+    canvas: { width: W, height: H },
+    layers,
+    creative_intelligence: {
+      layout_type:     layoutType,
+      color_strategy:  strategy.color_strategy   || '',
+      ad_energy:       strategy.ad_energy        || '',
+    },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DB operations
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -350,4 +517,21 @@ async function getLayoutByAdId(adId) {
   return rows[0] || null;
 }
 
-module.exports = { buildLayoutFromStrategy, saveLayout, getLayoutByAdId };
+async function saveEditableLayout(adId, editableJson) {
+  await query(
+    `UPDATE creative_layouts
+     SET editable_json = $2, editable_analyzed_at = NOW(), updated_at = NOW()
+     WHERE ad_id = $1`,
+    [adId, JSON.stringify(editableJson)]
+  );
+}
+
+async function getEditableLayout(adId) {
+  const { rows } = await query(
+    'SELECT editable_json, editable_analyzed_at FROM creative_layouts WHERE ad_id = $1',
+    [adId]
+  );
+  return rows[0] || null;
+}
+
+module.exports = { buildLayoutFromStrategy, saveLayout, getLayoutByAdId, saveEditableLayout, getEditableLayout, analyzeAdLayout };

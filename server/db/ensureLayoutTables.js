@@ -13,10 +13,17 @@ const DDL = `
   CREATE UNIQUE INDEX IF NOT EXISTS creative_layouts_ad_id_idx ON creative_layouts(ad_id);
 `;
 
+// V2 columns — added after initial creation; idempotent
+const DDL_V2 = `
+  ALTER TABLE creative_layouts ADD COLUMN IF NOT EXISTS editable_json      JSONB;
+  ALTER TABLE creative_layouts ADD COLUMN IF NOT EXISTS editable_analyzed_at TIMESTAMPTZ;
+`;
+
 async function ensureLayoutTables() {
   const client = await pool.connect();
   try {
     await client.query(DDL);
+    await client.query(DDL_V2);
     console.log('[ensureLayoutTables] ready.');
   } catch (err) {
     console.error('[ensureLayoutTables] Migration failed:', err.message);
