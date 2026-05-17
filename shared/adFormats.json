@@ -1,0 +1,162 @@
+[
+  {
+    "id": "ugc_product_in_hand",
+    "name": "UGC Product-in-Hand",
+    "thumbnail": "📱",
+    "description": "Authentic, user-generated style showing someone holding or using the product naturally",
+    "layout_rules": "Person prominently featured with product in hand or in use; casual real-world environment; vertical preferred; raw unpolished composition",
+    "typography_rules": "Minimal text, casual sans-serif or handwritten font, subtitle-style captions or none",
+    "visual_rules": "Natural lighting, real environment, warm tones, slightly imperfect for authenticity",
+    "marketing_goal": "Trust building, social proof, awareness"
+  },
+  {
+    "id": "bold_billboard",
+    "name": "Bold Billboard",
+    "thumbnail": "🟦",
+    "description": "Large-format statement ad with oversized typography dominating the frame",
+    "layout_rules": "Massive headline text occupies 60–80% of frame; product floats or is secondary; extreme whitespace or solid brand color background",
+    "typography_rules": "Oversized display font, ultra-bold weight, single short phrase (3–6 words), high contrast",
+    "visual_rules": "Flat solid or gradient background, minimal clutter, strong brand color usage",
+    "marketing_goal": "Brand awareness, emotional impact, top-of-funnel"
+  },
+  {
+    "id": "listicle_reasons",
+    "name": "X Reasons Why / Listicle",
+    "thumbnail": "📋",
+    "description": "Numbered list format showing multiple benefits or reasons to buy",
+    "layout_rules": "Vertical list with 3–5 numbered items; product or icon on left side; benefits stacked on right; clear visual hierarchy",
+    "typography_rules": "Bold numbered labels, clean readable body text, clear hierarchy between number and benefit text",
+    "visual_rules": "Clean white or light background, accent color for numbers, consistent iconography or checkmarks",
+    "marketing_goal": "Consideration, value demonstration, conversion"
+  },
+  {
+    "id": "big_question",
+    "name": "Big Question",
+    "thumbnail": "❓",
+    "description": "Provocative question headline that creates curiosity and demands attention",
+    "layout_rules": "Question text as primary visual element; product reveal below or after; strong typographic focal point",
+    "typography_rules": "Large question in display font, conversational tone, follow-up answer in smaller supporting text",
+    "visual_rules": "High contrast background, dramatic lighting on product, tension-building composition",
+    "marketing_goal": "Awareness, curiosity, engagement"
+  },
+  {
+    "id": "problem_callout",
+    "name": "Problem Callout",
+    "thumbnail": "⚡",
+    "description": "Lead with a pain point the audience experiences, then present the product as the solution",
+    "layout_rules": "Problem statement dominates top half; solution reveal in bottom half with product; clear visual divider between problem and solution",
+    "typography_rules": "Problem text in bold urgent style; solution text in reassuring, benefit-oriented style",
+    "visual_rules": "Contrast between problem (dark, tense) and solution (light, clean) visual treatment",
+    "marketing_goal": "Conversion, direct response, consideration"
+  },
+  {
+    "id": "transformation_timeline",
+    "name": "Transformation Timeline",
+    "thumbnail": "📈",
+    "description": "Visual journey showing progression or improvement over time",
+    "layout_rules": "Left-to-right or top-to-bottom timeline; 3–4 stages with clear visual distinction; product as catalyst or outcome",
+    "typography_rules": "Stage labels, time indicators (Day 1, Week 4), results text; clean hierarchy",
+    "visual_rules": "Progressive visual change, warm to vibrant color shift, upward momentum",
+    "marketing_goal": "Conversion, trust building, results-focused"
+  },
+  {
+    "id": "before_after",
+    "name": "Before / After",
+    "thumbnail": "↔️",
+    "description": "Split-screen or sequential comparison showing transformation",
+    "layout_rules": "Equal split between before (left/top) and after (right/bottom); clear divider; consistent framing for fair comparison",
+    "typography_rules": "BEFORE and AFTER labels, optional result callout text, minimal other copy",
+    "visual_rules": "Dramatic visual difference between states; consistent lighting angles; result should feel aspirational",
+    "marketing_goal": "Conversion, product demonstration, results proof"
+  },
+  {
+    "id": "native_screenshot",
+    "name": "Native Screenshot",
+    "thumbnail": "📸",
+    "description": "Looks like an organic social post, screenshot, or direct message to build native trust",
+    "layout_rules": "Designed to look like a real social post, DM, review, or text message; platform UI elements included",
+    "typography_rules": "Platform-native typography (iOS/Android/Instagram style), authentic username/handle styling",
+    "visual_rules": "Match platform visual language exactly; blurred or generic background; high authenticity cues",
+    "marketing_goal": "Awareness, social proof, native engagement"
+  },
+  {
+    "id": "testimonial",
+    "name": "Testimonial",
+    "thumbnail": "💬",
+    "description": "Real customer quote with strong social proof and credibility signals",
+    "layout_rules": "Large pull quote as hero; customer photo or avatar; star rating if applicable; product secondary",
+    "typography_rules": "Quote in large legible font with quotation marks; attribution in smaller text; bold key phrases",
+    "visual_rules": "Warm trustworthy color palette; professional but approachable headshot; credibility indicators visible",
+    "marketing_goal": "Conversion, trust building, social proof"
+  },
+  {
+    "id": "founder_story",
+    "name": "Founder Story",
+    "thumbnail": "👤",
+    "description": "Personal narrative from the founder or creator, building brand connection",
+    "layout_rules": "Founder photo prominent; personal story text; product integrated naturally; authentic, non-polished feel",
+    "typography_rules": "First-person narrative, conversational tone, signature element if possible",
+    "visual_rules": "Authentic photography style, behind-the-scenes or personal setting, warm inviting palette",
+    "marketing_goal": "Brand affinity, trust, top-of-funnel storytelling"
+  },
+  {
+    "id": "comparison_grid",
+    "name": "Comparison Grid",
+    "thumbnail": "⚖️",
+    "description": "Feature comparison table showing your product vs competitors or older alternatives",
+    "layout_rules": "Column comparison table; your brand in highlighted column; 4–6 feature rows; checkmarks and X marks",
+    "typography_rules": "Clean table typography; bold brand name; feature labels in left column; status icons per cell",
+    "visual_rules": "Accent color on your brand column; neutral grays for competitor; clear winner visual treatment",
+    "marketing_goal": "Consideration, conversion, competitive differentiation"
+  },
+  {
+    "id": "meme_style",
+    "name": "Meme Style",
+    "thumbnail": "😄",
+    "description": "Internet culture reference or meme format adapted for the product",
+    "layout_rules": "Recognizable meme template structure; product integrated into the joke; top/bottom text format or reaction-based",
+    "typography_rules": "Impact or bold display font, all-caps top/bottom text, meme-native styling",
+    "visual_rules": "Reference recognizable meme formats; product swap into familiar template; humor-forward composition",
+    "marketing_goal": "Virality, engagement, awareness, Gen-Z targeting"
+  },
+  {
+    "id": "press_feature",
+    "name": "Press Feature",
+    "thumbnail": "📰",
+    "description": "As seen in press coverage, media mentions, or publication quotes",
+    "layout_rules": "Publication logos displayed; headline quote prominent; product showcased; credibility-first layout",
+    "typography_rules": "Publication name in recognizable style; quote text prominent; authoritative editorial feel",
+    "visual_rules": "Clean editorial aesthetic; publication branding respected; product in premium context",
+    "marketing_goal": "Trust, credibility, conversion, social proof"
+  },
+  {
+    "id": "stat_driven",
+    "name": "Stat Driven",
+    "thumbnail": "📊",
+    "description": "Data and statistics as the hero visual — numbers that validate the product claim",
+    "layout_rules": "Large numeric stat as visual anchor; supporting context text; product secondary to the number",
+    "typography_rules": "Oversized number in display font; unit and context in supporting size; clean data visualization",
+    "visual_rules": "Clean clinical aesthetic; accent color on key number; chart or graph elements optional",
+    "marketing_goal": "Credibility, conversion, consideration, B2B"
+  },
+  {
+    "id": "minimal_luxury",
+    "name": "Minimal Luxury",
+    "thumbnail": "✦",
+    "description": "Ultra-clean, premium aesthetic with generous whitespace and refined typography",
+    "layout_rules": "Extreme whitespace, single product as hero, elegant minimal composition, nothing unnecessary",
+    "typography_rules": "Serif or refined sans-serif, small elegant text, generous letter-spacing, minimal copy",
+    "visual_rules": "Monochromatic or neutral palette, studio-quality product photography feel, premium textures",
+    "marketing_goal": "Premium positioning, brand elevation, luxury market"
+  },
+  {
+    "id": "direct_response",
+    "name": "Direct Response",
+    "thumbnail": "🎯",
+    "description": "High-urgency, conversion-optimized ad with clear CTA and value proposition front and center",
+    "layout_rules": "Offer prominent at top; product hero in center; CTA button-style element at bottom; urgency indicators",
+    "typography_rules": "Bold benefit headline, offer callout (price, discount, free), clear CTA text",
+    "visual_rules": "High contrast, bright colors, urgency cues (limited time badge), product clearly visible",
+    "marketing_goal": "Direct conversion, bottom-of-funnel, retargeting"
+  }
+]
