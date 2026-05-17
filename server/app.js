@@ -1,6 +1,8 @@
-const express  = require('express');
-const path     = require('path');
-const session  = require('express-session');
+const express      = require('express');
+const path         = require('path');
+const session      = require('express-session');
+const pgSession    = require('connect-pg-simple')(session);
+const { pool }     = require('./db');
 
 const brandsRouter     = require('./routes/brands');
 const uploadRouter     = require('./routes/upload');
@@ -25,9 +27,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(logger.requestLogger);
 
-// Session
+// Session — PostgreSQL-backed so sessions survive restarts and Vercel cold starts
 const isProd = process.env.NODE_ENV === 'production';
 app.use(session({
+  store: new pgSession({
+    pool,
+    tableName: 'session',
+    createTableIfMissing: false, // table created by schema.sql
+  }),
   secret:            process.env.SESSION_SECRET || 'dev-secret-change-in-production',
   resave:            false,
   saveUninitialized: false,

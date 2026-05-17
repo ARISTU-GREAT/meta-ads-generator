@@ -71,6 +71,7 @@ router.post('/login', asyncHandler(async (req, res) => {
   sessionFor(req, user);
   req.session.save(err => {
     if (err) return res.status(500).json({ success: false, error: 'Session save failed' });
+    console.log('[auth/login] session saved | sid:', req.session.id, '| user_id:', user.id);
     res.json({ success: true, email: user.email, role: user.role });
   });
 }));

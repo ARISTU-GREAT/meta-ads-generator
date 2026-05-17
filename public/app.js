@@ -10,9 +10,24 @@ const Auth = (() => {
     document.getElementById('app-shell')?.classList.remove('hidden');
   }
 
-  function showLogin() {
+  // Reset all login/signup button states, then show login screen.
+  // Safe to call from anywhere — including inside App — without leaving UI stuck.
+  function showLoginScreen(mode = 'login') {
+    // Reset login button
+    const loginBtn = document.getElementById('login-btn');
+    if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = 'Sign In'; }
+    // Reset signup button
+    const signupBtn = document.getElementById('signup-btn');
+    if (signupBtn) { signupBtn.disabled = false; signupBtn.textContent = 'Create Admin Account'; }
+    // Clear error messages
+    const loginErr  = document.getElementById('login-error');
+    const signupErr = document.getElementById('signup-error');
+    if (loginErr)  { loginErr.textContent  = ''; loginErr.classList.add('hidden'); }
+    if (signupErr) { signupErr.textContent = ''; signupErr.classList.add('hidden'); }
+
     document.getElementById('login-screen')?.classList.remove('hidden');
     document.getElementById('app-shell')?.classList.add('hidden');
+    showMode(mode);
   }
 
   // Switch between 'login' and 'signup' form modes
@@ -42,18 +57,16 @@ const Auth = (() => {
         return;
       }
 
-      showLogin();
       if (!status.hasAdmin) {
         // No admin yet — show tabs and default to signup
         document.getElementById('login-tabs')?.classList.remove('hidden');
-        showMode('signup');
+        showLoginScreen('signup');
       } else {
         // Admin exists — login only, no signup tab exposed
-        showMode('login');
+        showLoginScreen('login');
       }
     } catch {
-      showLogin();
-      showMode('login');
+      showLoginScreen('login');
     }
   }
 
@@ -78,6 +91,9 @@ const Auth = (() => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Login failed');
+      // Reset button before showing app so it's ready if login screen reappears
+      btn.disabled    = false;
+      btn.textContent = 'Sign In';
       showApp();
       App.init();
     } catch (err) {
@@ -122,7 +138,9 @@ const Auth = (() => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Signup failed');
-      // Signup auto-logs in via session — go straight to app
+      // Reset button before showing app so it's ready if login screen reappears
+      btn.disabled    = false;
+      btn.textContent = 'Create Admin Account';
       showApp();
       App.init();
     } catch (err) {
@@ -135,15 +153,14 @@ const Auth = (() => {
 
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
-    showLogin();
     document.getElementById('login-password').value = '';
-    // Re-check status in case tabs need to show
+    // Re-check status so tabs show correctly (signup if no admin, login if admin exists)
     check();
   }
 
   document.addEventListener('DOMContentLoaded', check);
 
-  return { submitLogin, submitSignup, logout, showMode };
+  return { submitLogin, submitSignup, logout, showMode, showLoginScreen };
 })();
 
 const App = (() => {
@@ -208,12 +225,10 @@ const App = (() => {
   // ── API Helpers ──────────────────────────────────────────────
   async function _handleApiResponse(r) {
     if (r.status === 401) {
-      // Session expired — verify with /me before showing login to avoid false positives
+      // Verify with /me before showing login — avoids false positives from a single bad request
       const me = await fetch('/api/auth/me', { credentials: 'include' }).then(x => x.json()).catch(() => ({}));
       if (!me.authenticated) {
-        Auth.showMode('login');
-        document.getElementById('login-screen')?.classList.remove('hidden');
-        document.getElementById('app-shell')?.classList.add('hidden');
+        Auth.showLoginScreen('login');
         throw new Error('Session expired. Please sign in again.');
       }
     }
@@ -1098,9 +1113,7 @@ const App = (() => {
       if (response.status === 401) {
         const me = await fetch('/api/auth/me', { credentials: 'include' }).then(x => x.json()).catch(() => ({}));
         if (!me.authenticated) {
-          Auth.showMode('login');
-          document.getElementById('login-screen')?.classList.remove('hidden');
-          document.getElementById('app-shell')?.classList.add('hidden');
+          Auth.showLoginScreen('login');
           throw new Error('Session expired. Please sign in again.');
         }
       }
