@@ -1720,6 +1720,48 @@ const App = (() => {
     }
   }
 
+  // ── Best-available Figma export (blueprint → editable → fast) ──
+  async function exportEditableFigma() {
+    const ad = state.studio.ad;
+    if (!ad?.id) return;
+
+    const hintEl  = document.getElementById('studio-export-hint');
+    const btnEl   = document.getElementById('btn-export-figma-best');
+    const labelEl = document.getElementById('btn-export-figma-best-label');
+    if (btnEl)  btnEl.disabled  = true;
+    if (labelEl) labelEl.textContent = 'Exporting…';
+    if (hintEl) hintEl.textContent = 'Preparing your editable Figma file…';
+
+    try {
+      const res = await fetch(`/api/ads/${ad.id}/layout/export-best`, { credentials: 'include' });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const b = await res.json(); msg = b.error || b.message || msg; } catch {}
+        throw new Error(msg);
+      }
+      const modeUsed = res.headers.get('X-Export-Mode') || 'fast';
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `creative-layout-${ad.id.slice(0, 8)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      const modeLabel = modeUsed === 'blueprint' ? 'Claude Blueprint'
+                      : modeUsed === 'editable'  ? 'AI Editable'
+                      : 'Fast Layout';
+      if (hintEl) hintEl.textContent = `Downloaded (${modeLabel}) — import via Figma plugin`;
+    } catch (err) {
+      console.error('[exportEditableFigma] failed:', err.message);
+      if (hintEl) hintEl.textContent = 'Export failed: ' + err.message;
+    } finally {
+      if (btnEl)  btnEl.disabled  = false;
+      if (labelEl) labelEl.textContent = 'Export Editable Figma File';
+    }
+  }
+
   // ── Editable export — GPT-4o vision layer reconstruction ────
   async function exportToFigmaEditable() {
     const ad = state.studio.ad;
@@ -2190,12 +2232,10 @@ const App = (() => {
     // Update provider dropdowns
     _updateProviderSelect('ai-prov-instructions', 'openai');
     _updateProviderSelect('ai-prov-strategy',     'claude');
-    // Blueprint button state
-    const blueprintBtn = document.getElementById('btn-export-figma-blueprint');
-    if (blueprintBtn) {
-      const missing = !_aiCap.anthropic;
-      blueprintBtn.disabled = missing;
-      blueprintBtn.title    = missing ? 'Claude Blueprint requires ANTHROPIC_API_KEY' : '';
+    // Export-best button state (requires Anthropic for best results, but still works without it)
+    const bestBtn = document.getElementById('btn-export-figma-best');
+    if (bestBtn) {
+      bestBtn.title = !_aiCap.anthropic ? 'ANTHROPIC_API_KEY not set — will fall back to editable or fast export' : '';
     }
   }
 
@@ -2382,6 +2422,7 @@ const App = (() => {
     // Studio
     closeStudio, downloadStudioAd, approveStudioAd, deleteStudioAd, remixThisAd,
     approveAndLearn, rejectAndLearn, exportToFigma, exportToFigmaEditable, exportToFigmaBlueprint,
+    exportEditableFigma,
 
     // Brand Memory
     filterMemory, analyzeAllAssets, generateNewAngles,
