@@ -183,7 +183,7 @@
   <div class="steps">
     <div class="step">
       <span class="step-num">1</span>
-      <span class="step-text">In AdFlow Studio, open an ad → click <strong>Export Layout JSON</strong></span>
+      <span class="step-text">In AdFlow Studio, open an ad → click <strong>Export Editable Figma File</strong></span>
     </div>
     <div class="step">
       <span class="step-num">2</span>
@@ -202,7 +202,7 @@
     class="json-input"
     id="json-input"
     spellcheck="false"
-    placeholder='{"version":"1.0","schema":"creative-layout","meta":{...},"canvas":{...},"layers":[...]}'
+    placeholder='{"schema":"creative-layout",...} or {"schema":"adflow-editable-design",...}'
   ></textarea>
 
   <div class="safe-mode-row">
@@ -251,7 +251,7 @@
   <div class="error-stack" id="error-stack"></div>
 
   <div class="footer-hint">
-    <strong>Blueprint mode:</strong> real editable text, button shapes &amp; image placeholders.<br>
+    <strong>Editable Design:</strong> real editable text, shapes &amp; image layers — every element native Figma.<br>
     <strong>After import:</strong> select any grey placeholder → add an Image fill in the right panel.
   </div>
 
@@ -340,10 +340,12 @@
         setStatus('error-msg', 'JSON must be an object ({ … }), not an array or primitive.');
         return;
       }
-      if (parsed.schema !== 'creative-layout') {
+      const supportedSchemas = ['creative-layout', 'adflow-editable-design'];
+      if (!supportedSchemas.includes(parsed.schema)) {
         setStatus('error-msg',
-          'Not an AdFlow creative layout.\n\nExpected schema: "creative-layout"\nGot: "' + (parsed.schema || '') + '"' +
-          '\n\nUse the "Export Layout JSON" button inside AdFlow Studio.');
+          'Unsupported schema: "' + (parsed.schema || '(none)') + '"' +
+          '\n\nSupported formats: creative-layout and adflow-editable-design' +
+          '\n\nUse the "Export Editable Figma File" button inside AdFlow Studio.');
         return;
       }
 
