@@ -1,7 +1,9 @@
 const express   = require('express');
 const router    = express.Router();
 const adService = require('../services/adService');
-const { asyncHandler } = require('../utils/errors');
+const { asyncHandler, AppError } = require('../utils/errors');
+const brandMemoryService = require('../services/brandMemoryService');
+const { query } = require('../db');
 
 // GET /api/ads — filterable list
 router.get('/', asyncHandler(async (req, res) => {
@@ -27,6 +29,22 @@ router.put('/:id/status', asyncHandler(async (req, res) => {
 router.delete('/:id', asyncHandler(async (req, res) => {
   await adService.deleteAd(req.params.id);
   res.json({ success: true, message: 'Ad deleted' });
+}));
+
+// POST /api/ads/:id/approve-learn — approve and save to brand memory
+router.post('/:id/approve-learn', asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT brand_id FROM generated_ads WHERE id = $1', [req.params.id]);
+  if (!rows.length) throw new AppError('Ad not found', 404);
+  await brandMemoryService.markAdApproved(req.params.id, rows[0].brand_id);
+  res.json({ success: true, message: 'Ad approved and saved to Brand Memory' });
+}));
+
+// POST /api/ads/:id/reject-learn — reject and save negative guidance to brand memory
+router.post('/:id/reject-learn', asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT brand_id FROM generated_ads WHERE id = $1', [req.params.id]);
+  if (!rows.length) throw new AppError('Ad not found', 404);
+  await brandMemoryService.markAdRejected(req.params.id, rows[0].brand_id, req.body.reason || '');
+  res.json({ success: true, message: 'Ad rejected and saved to Brand Memory' });
 }));
 
 // GET /api/ads/concepts/list

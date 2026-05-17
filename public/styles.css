@@ -1576,6 +1576,19 @@ body {
   transition: background 0.12s;
 }
 .btn-sm-primary:hover { background: var(--accent-h); }
+.btn-sm-ghost {
+  padding: 6px 14px;
+  background: none;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+}
+.btn-sm-ghost:hover { background: var(--surface-2); color: var(--text-1); }
 
 /* Spinner */
 .spinner {
@@ -1676,6 +1689,287 @@ body {
 }
 .kit-status-bar.complete .kit-status-text { color: var(--success); }
 .kit-status-bar.incomplete .kit-status-text { color: #92400e; }
+
+/* ── Asset Picker ────────────────────────────────────────────── */
+.asset-picker-btn {
+  width: 100%;
+  margin-top: 5px;
+  padding: 5px 8px;
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: transparent;
+  border: 1px dashed var(--border-md);
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: center;
+  font-family: inherit;
+}
+.asset-picker-btn:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.modal-asset-picker { max-width: 600px; }
+
+.asset-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  min-height: 100px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.asset-picker-card {
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+  display: flex;
+  flex-direction: column;
+}
+.asset-picker-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(79,70,229,0.12);
+}
+.asset-picker-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+.asset-picker-card-name {
+  font-size: 0.65rem;
+  color: var(--text-3);
+  padding: 4px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Selected asset shown inside the drop zone */
+.asset-in-use {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+}
+.asset-in-use img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.asset-in-use-label {
+  font-size: 0.65rem;
+  color: var(--text-2);
+  max-width: 110px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.asset-in-use-remove {
+  font-size: 0.65rem;
+  color: var(--text-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  font-family: inherit;
+}
+.asset-in-use-remove:hover { color: var(--error, #dc2626); }
+
+/* ── Brand Memory ───────────────────────────────────────────── */
+.memory-action-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.memory-section {
+  margin-bottom: 24px;
+}
+.memory-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.memory-section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.memory-section-hint {
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+.memory-filter-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.memory-filter-btn {
+  font-size: 0.72rem;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.memory-filter-btn:hover  { background: var(--surface-2); color: var(--text-1); }
+.memory-filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.memory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.memory-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.75rem;
+}
+.memory-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.memory-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.memory-badge.badge-approved  { background: rgba(34,197,94,0.15);  color: #16a34a; }
+.memory-badge.badge-rejected  { background: rgba(239,68,68,0.12);  color: #dc2626; }
+.memory-badge.badge-reference { background: rgba(99,102,241,0.15); color: #6366f1; }
+.memory-badge.badge-note      { background: rgba(234,179,8,0.15);  color: #ca8a04; }
+.memory-card-del {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 0.7rem;
+  padding: 0 2px;
+  line-height: 1;
+  font-family: inherit;
+}
+.memory-card-del:hover { color: var(--error, #dc2626); }
+.memory-card-summary {
+  color: var(--text-1);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.memory-card-meta {
+  color: var(--text-3);
+  font-size: 0.7rem;
+}
+.memory-card-reason {
+  color: #dc2626;
+  font-size: 0.7rem;
+  font-style: italic;
+}
+.memory-card-time {
+  color: var(--text-3);
+  font-size: 0.65rem;
+  margin-top: auto;
+}
+.memory-angle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.memory-angle-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.memory-angle-body {
+  flex: 1;
+  min-width: 0;
+}
+.memory-angle-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 3px;
+}
+.memory-angle-hook {
+  font-size: 0.74rem;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+
+/* Studio memory action buttons */
+.studio-memory-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.btn-memory-approve,
+.btn-memory-reject {
+  flex: 1;
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-memory-approve {
+  background: rgba(34,197,94,0.12);
+  color: #16a34a;
+  border-color: rgba(34,197,94,0.25);
+}
+.btn-memory-approve:hover:not(:disabled) { background: rgba(34,197,94,0.22); }
+.btn-memory-reject {
+  background: rgba(239,68,68,0.10);
+  color: #dc2626;
+  border-color: rgba(239,68,68,0.2);
+}
+.btn-memory-reject:hover:not(:disabled) { background: rgba(239,68,68,0.18); }
+.btn-memory-approve:disabled,
+.btn-memory-reject:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 1100px) {

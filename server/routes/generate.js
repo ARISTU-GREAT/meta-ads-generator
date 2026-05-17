@@ -8,6 +8,7 @@ const { isBrandSetupComplete }     = require('../utils/brandKit');
 const { TEMP_DIR }                 = require('../utils/paths');
 const { query }                    = require('../db');
 const generationService            = require('../services/generationService');
+const { resolveImage }             = require('../utils/assetResolver');
 
 const upload = multer({
   dest: TEMP_DIR,
@@ -29,12 +30,14 @@ function cleanTempFiles(...paths) {
 
 // POST /api/generate/remix
 // Body: multipart/form-data
-//   brand_id        — UUID (required)
-//   reference_image — file (required) — the ad layout to remix
-//   product_image   — file (required) — product to feature
-//   instructions    — string (optional)
-//   aspect_ratio    — 'square' | 'portrait' | 'landscape'  (default: square)
-//   count           — 1–20 (default: 5)
+//   brand_id             — UUID (required)
+//   reference_image      — file  (required unless reference_asset_id)
+//   reference_asset_id   — UUID  (required unless reference_image)
+//   product_image        — file  (required unless product_asset_id)
+//   product_asset_id     — UUID  (required unless product_image)
+//   instructions         — string (optional)
+//   aspect_ratio         — 'square' | 'portrait' | 'landscape'
+//   count                — 1–20 (default: 5)
 router.post(
   '/remix',
   upload.fields([
@@ -42,13 +45,10 @@ router.post(
     { name: 'product_image',   maxCount: 1 },
   ]),
   asyncHandler(async (req, res) => {
-    const { brand_id, instructions, aspect_ratio, count } = req.body;
+    const { brand_id, instructions, aspect_ratio, count, reference_asset_id, product_asset_id } = req.body;
     const n = parseInt(count, 10) || 5;
     if (n < 1 || n > 20) throw new AppError('count must be between 1 and 20', 400);
-
-    if (!brand_id)                        throw new AppError('brand_id is required', 400);
-    if (!req.files?.reference_image?.[0]) throw new AppError('reference_image is required', 400);
-    if (!req.files?.product_image?.[0])   throw new AppError('product_image is required', 400);
+    if (!brand_id) throw new AppError('brand_id is required', 400);
 
     const { rows: brandRows } = await query('SELECT * FROM brands WHERE id = $1 AND is_active = true', [brand_id]);
     if (!brandRows.length) throw new AppError('Brand not found', 404);
@@ -57,23 +57,26 @@ router.post(
       throw new AppError('Brand Setup incomplete. Complete Brand Setup before generating ads.', 400, { required_fields: kitCheck.missing_labels });
     }
 
-    const refFile  = req.files.reference_image[0];
-    const prodFile = req.files.product_image[0];
+    const [refResolved, prodResolved] = await Promise.all([
+      resolveImage(req.files?.reference_image?.[0], reference_asset_id, 'reference_image'),
+      resolveImage(req.files?.product_image?.[0],   product_asset_id,   'product_image'),
+    ]);
 
     let result;
     try {
       result = await generationService.remixGenerateBatch({
         brandId:            brand_id,
-        referenceImagePath: refFile.path,
-        productImagePath:   prodFile.path,
-        referenceImageMime: refFile.mimetype,
-        productImageMime:   prodFile.mimetype,
+        referenceImagePath: refResolved.path,
+        productImagePath:   prodResolved.path,
+        referenceImageMime: refResolved.mime,
+        productImageMime:   prodResolved.mime,
         instructions:       instructions || '',
         aspectRatio:        aspect_ratio || 'square',
         count:              n,
       });
     } finally {
-      cleanTempFiles(refFile.path, prodFile.path);
+      refResolved.cleanup();
+      prodResolved.cleanup();
     }
 
     res.status(201).json({ success: true, data: result });
@@ -102,14 +105,14 @@ router.post(
       }
     };
 
-    const { brand_id, instructions, aspect_ratio, count, campaign_id, speed_mode } = req.body;
+    const { brand_id, instructions, aspect_ratio, count, campaign_id, speed_mode,
+            reference_asset_id, product_asset_id } = req.body;
     const n = parseInt(count, 10) || 5;
 
-    if (!brand_id || !req.files?.reference_image?.[0] || !req.files?.product_image?.[0]) {
-      sendEvent({ type: 'error', message: 'brand_id, reference_image, and product_image are required' });
+    if (!brand_id) {
+      sendEvent({ type: 'error', message: 'brand_id is required' });
       return res.end();
     }
-
     if (n < 1 || n > 20) {
       sendEvent({ type: 'error', message: 'count must be between 1 and 20 per request' });
       return res.end();
@@ -126,18 +129,26 @@ router.post(
       return res.end();
     }
 
-    const refFile  = req.files.reference_image[0];
-    const prodFile = req.files.product_image[0];
+    let refResolved, prodResolved;
+    try {
+      [refResolved, prodResolved] = await Promise.all([
+        resolveImage(req.files?.reference_image?.[0], reference_asset_id, 'reference_image'),
+        resolveImage(req.files?.product_image?.[0],   product_asset_id,   'product_image'),
+      ]);
+    } catch (err) {
+      sendEvent({ type: 'error', message: err.message });
+      return res.end();
+    }
 
     sendEvent({ type: 'start', count: n });
 
     try {
       const result = await generationService.remixGenerateBatchStream({
         brandId:            brand_id,
-        referenceImagePath: refFile.path,
-        productImagePath:   prodFile.path,
-        referenceImageMime: refFile.mimetype,
-        productImageMime:   prodFile.mimetype,
+        referenceImagePath: refResolved.path,
+        productImagePath:   prodResolved.path,
+        referenceImageMime: refResolved.mime,
+        productImageMime:   prodResolved.mime,
         instructions:       instructions || '',
         aspectRatio:        aspect_ratio || 'square',
         count:              n,
@@ -158,7 +169,8 @@ router.post(
       console.error('[generate/stream] fatal error:', err.message);
       sendEvent({ type: 'error', message: err.message });
     } finally {
-      cleanTempFiles(refFile?.path, prodFile?.path);
+      refResolved?.cleanup();
+      prodResolved?.cleanup();
       if (!res.writableEnded) res.end();
     }
   }

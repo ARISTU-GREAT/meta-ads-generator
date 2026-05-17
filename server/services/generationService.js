@@ -22,6 +22,7 @@ const { query }    = require('../db');
 const { AppError } = require('../utils/errors');
 const { GENERATED_DIR } = require('../utils/paths');
 const { composeCreativeStrategy } = require('./promptComposerService');
+const { getRelevantMemoriesForBrand, formatMemoryContext } = require('./brandMemoryService');
 
 // Lazy-init — safe to load without OPENAI_API_KEY at startup
 let _openai = null;
@@ -306,7 +307,16 @@ async function remixGenerateBatch({
   if (!brandRows.length) throw new AppError('Brand not found', 404);
   const brand = brandRows[0];
 
-  // ── 2. Prompt composer — runs ONCE for the whole batch ───────────────────
+  // ── 2. Brand memory context — fetched once, injected into prompt composer ──
+  let memoryContext = null;
+  try {
+    const { memories, angles } = await getRelevantMemoriesForBrand(brandId);
+    memoryContext = formatMemoryContext(memories, angles);
+  } catch (memErr) {
+    console.warn('[brandMemory] could not fetch memory:', memErr.message);
+  }
+
+  // ── 3. Prompt composer — runs ONCE for the whole batch ───────────────────
   let strategy     = null;
   let basePrompt   = null;
   let composerUsed = false;
@@ -317,7 +327,8 @@ async function remixGenerateBatch({
       referenceImagePath, referenceImageMime,
       productImagePath,   productImageMime,
       instructions, aspectRatio,
-      promptStyle: speedCfg.promptStyle,
+      promptStyle:   speedCfg.promptStyle,
+      memoryContext,
     });
     basePrompt   = strategy.enhanced_prompt;
     composerUsed = true;

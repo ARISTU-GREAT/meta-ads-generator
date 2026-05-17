@@ -155,6 +155,7 @@
               </div>
               <input type="file" id="ref-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
             </div>
+            <button class="asset-picker-btn" type="button" onclick="App.openAssetPicker('remix-ref')">⊕ From Brand Assets</button>
           </div>
           <div class="upload-slot">
             <div class="upload-slot-label">Product Image</div>
@@ -165,6 +166,7 @@
               </div>
               <input type="file" id="prod-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
             </div>
+            <button class="asset-picker-btn" type="button" onclick="App.openAssetPicker('remix-prod')">⊕ From Brand Assets</button>
           </div>
         </div>
 
@@ -238,6 +240,7 @@
             </div>
             <input type="file" id="concept-prod-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
           </div>
+          <button class="asset-picker-btn" type="button" onclick="App.openAssetPicker('concept-prod')">⊕ From Brand Assets</button>
         </div>
 
         <div class="field-group">
@@ -493,6 +496,11 @@
           <button class="btn-studio btn-studio-ghost"     id="studio-approve-btn" onclick="App.approveStudioAd()">✓ Approve</button>
           <button class="btn-studio btn-studio-danger"    onclick="App.deleteStudioAd()">⌫ Delete</button>
         </div>
+        <!-- Brand Memory actions -->
+        <div class="studio-memory-actions">
+          <button class="btn-memory-approve" onclick="App.approveAndLearn()">✦ Approve &amp; Learn</button>
+          <button class="btn-memory-reject"  onclick="App.rejectAndLearn()">✗ Reject &amp; Learn</button>
+        </div>
 
       </div>
     </div>
@@ -578,6 +586,7 @@
         <button class="modal-tab active" id="btab-overview"  onclick="App.switchBrandTab('overview')">Overview</button>
         <button class="modal-tab"        id="btab-assets"    onclick="App.switchBrandTab('assets')">Assets</button>
         <button class="modal-tab"        id="btab-personas"  onclick="App.switchBrandTab('personas')">Personas</button>
+        <button class="modal-tab"        id="btab-memory"    onclick="App.switchBrandTab('memory')">✦ Memory</button>
       </div>
 
       <!-- Overview -->
@@ -681,6 +690,52 @@
         </div>
       </div>
 
+      <!-- Memory / Creative Intelligence -->
+      <div id="brand-tab-memory" class="hidden">
+
+        <!-- Action bar -->
+        <div class="memory-action-bar">
+          <button class="btn-sm-primary" onclick="App.analyzeAllAssets()" id="btn-analyze-assets">
+            ⊙ Analyze Reference Ads
+          </button>
+          <button class="btn-sm-primary" onclick="App.generateNewAngles()" id="btn-gen-angles">
+            ✦ Generate New Angles
+          </button>
+          <button class="btn-sm-ghost" onclick="App.openAddMemoryNote()">
+            + Add Note
+          </button>
+        </div>
+
+        <!-- Angle Library -->
+        <div class="memory-section" id="memory-angles-section">
+          <div class="memory-section-header">
+            <span class="memory-section-title">Angle Library</span>
+            <span class="memory-section-hint">AI-generated creative angles for this brand</span>
+          </div>
+          <div class="memory-angle-list" id="memory-angle-list">
+            <div class="loading-text">No angles yet — click Generate New Angles.</div>
+          </div>
+        </div>
+
+        <!-- Memory grid -->
+        <div class="memory-section">
+          <div class="memory-section-header">
+            <span class="memory-section-title">Creative Memory</span>
+            <div class="memory-filter-tabs" id="memory-filter-tabs">
+              <button class="memory-filter-btn active" data-filter="" onclick="App.filterMemory('')">All</button>
+              <button class="memory-filter-btn" data-filter="reference_ad"  onclick="App.filterMemory('reference_ad')">Reference</button>
+              <button class="memory-filter-btn" data-filter="approved_ad"   onclick="App.filterMemory('approved_ad')">Approved</button>
+              <button class="memory-filter-btn" data-filter="rejected_ad"   onclick="App.filterMemory('rejected_ad')">Rejected</button>
+              <button class="memory-filter-btn" data-filter="manual_note"   onclick="App.filterMemory('manual_note')">Notes</button>
+            </div>
+          </div>
+          <div class="memory-grid" id="memory-grid">
+            <div class="loading-text">Loading memories…</div>
+          </div>
+        </div>
+
+      </div>
+
       <!-- Personas -->
       <div id="brand-tab-personas" class="hidden">
         <div id="brand-personas-list">
@@ -729,5 +784,20 @@
 </div>
 
 <script src="app.js"></script>
+<!-- ── ASSET PICKER MODAL ──────────────────────────────────────── -->
+<div class="modal-overlay hidden" id="modal-asset-picker" onclick="App.closeAssetPicker()">
+  <div class="modal modal-asset-picker" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2 class="modal-title">Choose Brand Asset</h2>
+      <button class="modal-close" onclick="App.closeAssetPicker()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="asset-picker-grid" id="asset-picker-grid">
+        <div class="loading-text">Loading assets…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

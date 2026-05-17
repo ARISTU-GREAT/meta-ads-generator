@@ -197,14 +197,20 @@ const App = (() => {
       batchId:   null,
     },
     remix: {
-      referenceFile: null,
-      productFile:   null,
-      aspectRatio:   'square',
-      outputVolume:  5,
-      lastStrategy:  null,
+      referenceFile:     null,
+      referenceAssetId:  null,
+      referenceAssetUrl: null,
+      productFile:       null,
+      productAssetId:    null,
+      productAssetUrl:   null,
+      aspectRatio:       'square',
+      outputVolume:      5,
+      lastStrategy:      null,
     },
     concepts: {
       productFile:       null,
+      productAssetId:    null,
+      productAssetUrl:   null,
       plan:              null,
       selectedFormatIds: [],
       selectedPersonaIds:[],
@@ -214,8 +220,9 @@ const App = (() => {
     },
     studio: {
       ad:     null,
-      adData: null,   // parsed metadata
+      adData: null,
     },
+    memoryFilter: '',
   };
 
   // ── Constants ────────────────────────────────────────────────
@@ -866,31 +873,36 @@ const App = (() => {
 
   // ── Remix Drop Zones ─────────────────────────────────────────
   function initRemixDropZones() {
-    setupDropZone('ref-drop',          'ref-file-input',     'ref-preview-wrap',          'referenceFile', state.remix);
-    setupDropZone('prod-drop',         'prod-file-input',    'prod-preview-wrap',         'productFile',   state.remix);
-    setupDropZone('concept-prod-drop', 'concept-prod-input', 'concept-prod-preview-wrap', 'productFile',   state.concepts);
+    setupDropZone('ref-drop',          'ref-file-input',     'ref-preview-wrap',          'referenceFile', state.remix,    'remix-ref');
+    setupDropZone('prod-drop',         'prod-file-input',    'prod-preview-wrap',         'productFile',   state.remix,    'remix-prod');
+    setupDropZone('concept-prod-drop', 'concept-prod-input', 'concept-prod-preview-wrap', 'productFile',   state.concepts, 'concept-prod');
   }
 
-  function setupDropZone(zoneId, inputId, previewId, stateKey, stateObj) {
+  function setupDropZone(zoneId, inputId, previewId, stateKey, stateObj, target) {
     const zone  = document.getElementById(zoneId);
     const input = document.getElementById(inputId);
     if (!zone || !input) return;
 
     zone.addEventListener('click',    () => input.click());
-    input.addEventListener('change',  () => { if (input.files[0]) applyDropFile(stateObj, stateKey, input.files[0], previewId, zone); });
+    input.addEventListener('change',  () => { if (input.files[0]) applyDropFile(stateObj, stateKey, input.files[0], previewId, zone, target); });
     zone.addEventListener('dragover', e  => { e.preventDefault(); zone.classList.add('drag-over'); });
     zone.addEventListener('dragleave',()  => zone.classList.remove('drag-over'));
     zone.addEventListener('drop',     e  => {
       e.preventDefault();
       zone.classList.remove('drag-over');
       const f = e.dataTransfer.files[0];
-      if (f) applyDropFile(stateObj, stateKey, f, previewId, zone);
+      if (f) applyDropFile(stateObj, stateKey, f, previewId, zone, target);
     });
   }
 
-  function applyDropFile(stateObj, stateKey, file, previewId, zone) {
+  function applyDropFile(stateObj, stateKey, file, previewId, zone, target) {
     if (!['image/jpeg','image/png','image/webp'].includes(file.type)) {
       return toast('Use JPG, PNG, or WebP', 'error');
+    }
+    // Clear any asset selection for this slot before applying uploaded file
+    if (target) {
+      const slot = _getSlot(target);
+      if (slot) { slot.stateObj[slot.assetKey] = null; slot.stateObj[slot.urlKey] = null; }
     }
     stateObj[stateKey] = file;
     zone.classList.add('has-file');
@@ -900,6 +912,90 @@ const App = (() => {
       if (wrap) wrap.innerHTML = `<img src="${e.target.result}" alt="preview" />`;
     };
     reader.readAsDataURL(file);
+  }
+
+  // ── Asset Picker ──────────────────────────────────────────────
+  let _pickerTarget  = null;
+  let _pickerAssets  = [];
+
+  // Slot configuration keyed by picker target name
+  function _getSlot(target) {
+    const slots = {
+      'remix-ref':    { stateObj: state.remix,    fileKey: 'referenceFile', assetKey: 'referenceAssetId', urlKey: 'referenceAssetUrl', previewId: 'ref-preview-wrap',          zoneId: 'ref-drop',          defaultHtml: '<div class="drop-icon">⊞</div><div class="drop-text">Drop or <span class="drop-link">browse</span></div>' },
+      'remix-prod':   { stateObj: state.remix,    fileKey: 'productFile',   assetKey: 'productAssetId',   urlKey: 'productAssetUrl',   previewId: 'prod-preview-wrap',         zoneId: 'prod-drop',         defaultHtml: '<div class="drop-icon">◈</div><div class="drop-text">Drop or <span class="drop-link">browse</span></div>' },
+      'concept-prod': { stateObj: state.concepts, fileKey: 'productFile',   assetKey: 'productAssetId',   urlKey: 'productAssetUrl',   previewId: 'concept-prod-preview-wrap', zoneId: 'concept-prod-drop', defaultHtml: '<div class="drop-icon" style="font-size:1.2rem;">◈</div><div class="drop-text">Drop or <span class="drop-link">browse</span></div>' },
+    };
+    return slots[target] || null;
+  }
+
+  async function openAssetPicker(target) {
+    if (!state.activeBrand) return toast('Select a brand first', 'error');
+    _pickerTarget = target;
+    const grid = document.getElementById('asset-picker-grid');
+    if (grid) grid.innerHTML = '<div class="loading-text">Loading assets…</div>';
+    document.getElementById('modal-asset-picker')?.classList.remove('hidden');
+
+    try {
+      const { data } = await api.get(`/brands/${state.activeBrand.id}/assets`);
+      _pickerAssets = data || [];
+      if (!grid) return;
+      if (!_pickerAssets.length) {
+        grid.innerHTML = '<div class="loading-text">No assets yet — upload some in Brand Setup → Assets.</div>';
+        return;
+      }
+      grid.innerHTML = _pickerAssets.map((a, i) => `
+        <div class="asset-picker-card" onclick="App.selectPickerAsset(${i})">
+          <img src="${esc(a.file_url || '')}" alt="${esc(a.name)}" loading="lazy" />
+          <div class="asset-picker-card-name">${esc(a.name)}</div>
+        </div>`).join('');
+    } catch (e) {
+      if (grid) grid.innerHTML = `<div class="loading-text">Failed to load: ${esc(e.message)}</div>`;
+    }
+  }
+
+  function closeAssetPicker() {
+    document.getElementById('modal-asset-picker')?.classList.add('hidden');
+    _pickerTarget = null;
+  }
+
+  function selectPickerAsset(index) {
+    const asset = _pickerAssets[index];
+    if (!asset || !_pickerTarget) return;
+    const slot = _getSlot(_pickerTarget);
+    if (!slot) return;
+
+    // Clear uploaded file, set asset
+    slot.stateObj[slot.fileKey]  = null;
+    slot.stateObj[slot.assetKey] = asset.id;
+    slot.stateObj[slot.urlKey]   = asset.file_url;
+
+    // Update drop zone preview
+    const wrap = document.getElementById(slot.previewId);
+    const zone = document.getElementById(slot.zoneId);
+    const tgt  = _pickerTarget; // capture before closeAssetPicker clears it
+    if (wrap) {
+      wrap.innerHTML = `
+        <div class="asset-in-use">
+          <img src="${esc(asset.file_url || '')}" alt="${esc(asset.name)}" />
+          <span class="asset-in-use-label" title="${esc(asset.name)}">${esc(asset.name)}</span>
+          <button class="asset-in-use-remove" type="button"
+                  onclick="event.stopPropagation();App.clearImageSlot('${tgt}')">Remove</button>
+        </div>`;
+    }
+    if (zone) zone.classList.add('has-file');
+    closeAssetPicker();
+  }
+
+  function clearImageSlot(target) {
+    const slot = _getSlot(target);
+    if (!slot) return;
+    slot.stateObj[slot.fileKey]  = null;
+    slot.stateObj[slot.assetKey] = null;
+    slot.stateObj[slot.urlKey]   = null;
+    const zone = document.getElementById(slot.zoneId);
+    const wrap = document.getElementById(slot.previewId);
+    if (zone) zone.classList.remove('has-file');
+    if (wrap) wrap.innerHTML = slot.defaultHtml;
   }
 
   // ── Format Library ───────────────────────────────────────────
@@ -1042,10 +1138,12 @@ const App = (() => {
 
   // ── Remix Generation (SSE Streaming) ─────────────────────────
   async function triggerRemixGenerate() {
-    if (!state.activeBrand)          return toast('Select a brand first', 'error');
-    if (!state.activeCampaign)       return toast('Create or select a campaign first', 'error');
-    if (!state.remix.referenceFile)  return toast('Upload a reference ad image', 'error');
-    if (!state.remix.productFile)    return toast('Upload a product image', 'error');
+    if (!state.activeBrand)    return toast('Select a brand first', 'error');
+    if (!state.activeCampaign) return toast('Create or select a campaign first', 'error');
+    if (!state.remix.referenceFile && !state.remix.referenceAssetId)
+      return toast('Upload or choose a reference ad image', 'error');
+    if (!state.remix.productFile && !state.remix.productAssetId)
+      return toast('Upload or choose a product image', 'error');
 
     const rawVol = parseInt(document.getElementById('remix-volume')?.value, 10);
     const n = Math.max(1, Math.min(20, isNaN(rawVol) ? state.remix.outputVolume : rawVol));
@@ -1061,14 +1159,20 @@ const App = (() => {
     _genTimer.start();
 
     const formData = new FormData();
-    formData.append('brand_id',        state.activeBrand.id);
-    formData.append('campaign_id',     state.activeCampaign.id);
-    formData.append('reference_image', state.remix.referenceFile);
-    formData.append('product_image',   state.remix.productFile);
-    formData.append('instructions',    getVal('remix-instructions'));
-    formData.append('aspect_ratio',    state.remix.aspectRatio);
-    formData.append('count',           n);
-    formData.append('speed_mode',      state.speedMode);
+    formData.append('brand_id',    state.activeBrand.id);
+    formData.append('campaign_id', state.activeCampaign.id);
+    if (state.remix.referenceFile)
+      formData.append('reference_image',    state.remix.referenceFile);
+    else
+      formData.append('reference_asset_id', state.remix.referenceAssetId);
+    if (state.remix.productFile)
+      formData.append('product_image',      state.remix.productFile);
+    else
+      formData.append('product_asset_id',   state.remix.productAssetId);
+    formData.append('instructions', getVal('remix-instructions'));
+    formData.append('aspect_ratio', state.remix.aspectRatio);
+    formData.append('count',        n);
+    formData.append('speed_mode',   state.speedMode);
 
     let completedCount = 0;
 
@@ -1159,9 +1263,10 @@ const App = (() => {
     if (state.concepts.selectedFormatIds.length) {
       formData.append('format_ids', JSON.stringify(state.concepts.selectedFormatIds));
     }
-    if (state.concepts.productFile) {
-      formData.append('product_image', state.concepts.productFile);
-    }
+    if (state.concepts.productFile)
+      formData.append('product_image',    state.concepts.productFile);
+    else if (state.concepts.productAssetId)
+      formData.append('product_asset_id', state.concepts.productAssetId);
 
     try {
       const { data } = await api.upload('/concepts/plan', formData);
@@ -1503,13 +1608,191 @@ const App = (() => {
 
   function switchBrandTab(tab) {
     state.brandTab = tab;
-    ['overview','assets','personas'].forEach(t => {
+    ['overview','assets','personas','memory'].forEach(t => {
       document.getElementById(`btab-${t}`)?.classList.toggle('active', t === tab);
       document.getElementById(`brand-tab-${t}`)?.classList.toggle('hidden', t !== tab);
     });
     if (tab === 'assets'   && state.activeBrand) loadBrandAssets();
     if (tab === 'personas' && state.activeBrand) {
       loadPersonas(state.activeBrand.id).then(renderBrandPersonasList);
+    }
+    if (tab === 'memory'   && state.activeBrand) {
+      loadMemory(state.activeBrand.id, state.memoryFilter || '');
+      loadAngles(state.activeBrand.id);
+    }
+  }
+
+  // ── Brand Memory ─────────────────────────────────────────────
+
+  async function loadMemory(brandId, filter) {
+    const grid = document.getElementById('memory-grid');
+    if (!grid) return;
+    grid.innerHTML = '<div class="loading-text">Loading…</div>';
+    try {
+      const params = filter ? `?source_type=${encodeURIComponent(filter)}` : '';
+      const { data } = await api.get(`/brands/${brandId}/memory${params}`);
+      renderMemoryGrid(data);
+    } catch (e) {
+      grid.innerHTML = `<div class="loading-text">Error loading memories.</div>`;
+    }
+  }
+
+  function renderMemoryGrid(memories) {
+    const grid = document.getElementById('memory-grid');
+    if (!grid) return;
+    if (!memories.length) {
+      grid.innerHTML = '<div class="loading-text">No memories yet — analyze reference ads or approve generated ads to build brand memory.</div>';
+      return;
+    }
+    grid.innerHTML = memories.map(m => {
+      const badge = {
+        approved_ad:   'Approved',
+        rejected_ad:   'Rejected',
+        reference_ad:  'Reference',
+        manual_note:   'Note',
+        template:      'Template',
+        generated:     'Generated',
+      }[m.source_type] || m.source_type;
+      const badgeClass = {
+        approved_ad:  'badge-approved',
+        rejected_ad:  'badge-rejected',
+        reference_ad: 'badge-reference',
+        manual_note:  'badge-note',
+      }[m.source_type] || '';
+      const summary = esc(m.creative_summary || m.notes || '');
+      return `
+        <div class="memory-card">
+          <div class="memory-card-header">
+            <span class="memory-badge ${badgeClass}">${badge}</span>
+            <button class="memory-card-del" onclick="App.deleteMemory('${m.id}')" title="Delete">✕</button>
+          </div>
+          ${summary ? `<div class="memory-card-summary">${summary}</div>` : ''}
+          ${m.color_palette ? `<div class="memory-card-meta">Colors: ${esc(m.color_palette)}</div>` : ''}
+          ${m.ad_energy     ? `<div class="memory-card-meta">Energy: ${esc(m.ad_energy)}</div>` : ''}
+          ${m.layout_type   ? `<div class="memory-card-meta">Layout: ${esc(m.layout_type)}</div>` : ''}
+          ${m.rejection_reason ? `<div class="memory-card-reason">Reason: ${esc(m.rejection_reason)}</div>` : ''}
+          <div class="memory-card-time">${relTime(m.created_at)}</div>
+        </div>`;
+    }).join('');
+  }
+
+  async function loadAngles(brandId) {
+    const list = document.getElementById('memory-angle-list');
+    if (!list) return;
+    try {
+      const { data } = await api.get(`/brands/${brandId}/memory/angles`);
+      renderAngleList(data);
+    } catch {}
+  }
+
+  function renderAngleList(angles) {
+    const list = document.getElementById('memory-angle-list');
+    if (!list) return;
+    if (!angles.length) {
+      list.innerHTML = '<div class="loading-text">No angles yet — click Generate New Angles.</div>';
+      return;
+    }
+    list.innerHTML = angles.map(a => `
+      <div class="memory-angle-card">
+        <div class="memory-angle-body">
+          <div class="memory-angle-name">${esc(a.angle_name)}</div>
+          <div class="memory-angle-hook">${esc(a.hook || '')}</div>
+        </div>
+        <button class="memory-card-del" onclick="App.deleteAngle('${a.id}')" title="Archive">✕</button>
+      </div>`).join('');
+  }
+
+  function filterMemory(sourceType) {
+    state.memoryFilter = sourceType;
+    document.querySelectorAll('.memory-filter-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.filter === sourceType);
+    });
+    if (state.activeBrand) loadMemory(state.activeBrand.id, sourceType);
+  }
+
+  async function analyzeAllAssets() {
+    if (!state.activeBrand) return;
+    const btn = document.getElementById('btn-analyze-assets');
+    if (btn) { btn.disabled = true; btn.textContent = '⊙ Analyzing…'; }
+    try {
+      await api.post(`/brands/${state.activeBrand.id}/memory/analyze-all-assets`, {});
+      toast('Reference ads analyzed and saved to memory');
+      loadMemory(state.activeBrand.id, state.memoryFilter || '');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '⊙ Analyze Reference Ads'; }
+    }
+  }
+
+  async function generateNewAngles() {
+    if (!state.activeBrand) return;
+    const btn = document.getElementById('btn-gen-angles');
+    if (btn) { btn.disabled = true; btn.textContent = '✦ Generating…'; }
+    try {
+      await api.post(`/brands/${state.activeBrand.id}/memory/angles/generate`, {});
+      toast('New angles generated');
+      loadAngles(state.activeBrand.id);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '✦ Generate New Angles'; }
+    }
+  }
+
+  async function deleteMemory(memoryId) {
+    if (!state.activeBrand) return;
+    try {
+      await api.delete(`/brands/${state.activeBrand.id}/memory/${memoryId}`);
+      loadMemory(state.activeBrand.id, state.memoryFilter || '');
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function deleteAngle(angleId) {
+    if (!state.activeBrand) return;
+    try {
+      await api.delete(`/brands/${state.activeBrand.id}/memory/angles/${angleId}`);
+      loadAngles(state.activeBrand.id);
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  function openAddMemoryNote() {
+    const note = prompt('Enter a creative note or guideline for this brand:');
+    if (!note || !note.trim() || !state.activeBrand) return;
+    api.post(`/brands/${state.activeBrand.id}/memory/manual`, { notes: note.trim() })
+      .then(() => {
+        toast('Note saved to Brand Memory');
+        loadMemory(state.activeBrand.id, state.memoryFilter || '');
+      })
+      .catch(e => toast(e.message, 'error'));
+  }
+
+  async function approveAndLearn() {
+    if (!state.studio.ad?.id) return;
+    const btn = document.querySelector('.btn-memory-approve');
+    if (btn) { btn.disabled = true; btn.textContent = '✦ Saving…'; }
+    try {
+      await api.post(`/ads/${state.studio.ad.id}/approve-learn`, {});
+      toast('Ad approved and saved to Brand Memory');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '✦ Approve & Learn'; }
+    }
+  }
+
+  async function rejectAndLearn() {
+    if (!state.studio.ad?.id) return;
+    const reason = prompt('Why is this ad being rejected? (optional — helps the AI improve)') || '';
+    const btn = document.querySelector('.btn-memory-reject');
+    if (btn) { btn.disabled = true; btn.textContent = '✗ Saving…'; }
+    try {
+      await api.post(`/ads/${state.studio.ad.id}/reject-learn`, { reason });
+      toast('Ad rejected and saved to Brand Memory');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '✗ Reject & Learn'; }
     }
   }
 
@@ -1672,7 +1955,7 @@ const App = (() => {
     selectBrandById, submitNewBrand, saveBrand, openBrandSetup, switchBrandTab,
 
     // Assets
-    deleteAsset,
+    deleteAsset, openAssetPicker, closeAssetPicker, selectPickerAsset, clearImageSlot,
 
     // Personas
     togglePersona, openCreatePersonaModal, submitNewPersona,
@@ -1697,5 +1980,10 @@ const App = (() => {
 
     // Studio
     closeStudio, downloadStudioAd, approveStudioAd, deleteStudioAd, remixThisAd,
+    approveAndLearn, rejectAndLearn,
+
+    // Brand Memory
+    filterMemory, analyzeAllAssets, generateNewAngles,
+    deleteMemory, deleteAngle, openAddMemoryNote,
   };
 })();

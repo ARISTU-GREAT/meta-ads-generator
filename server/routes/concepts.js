@@ -8,6 +8,7 @@ const { query }    = require('../db');
 const { asyncHandler, AppError } = require('../utils/errors');
 const { isBrandSetupComplete } = require('../utils/brandKit');
 const { generateConceptPlan, formatsData } = require('../services/conceptPlanService');
+const { resolveAssetToFile } = require('../utils/assetResolver');
 
 const { TEMP_DIR } = require('../utils/paths');
 
@@ -44,11 +45,10 @@ router.post(
   '/plan',
   upload.single('product_image'),
   asyncHandler(async (req, res) => {
-    const { brand_id, strategy, concept_count, aspect_ratio, format_ids } = req.body;
+    const { brand_id, strategy, concept_count, aspect_ratio, format_ids, product_asset_id } = req.body;
     if (!brand_id) throw new AppError('brand_id is required', 400);
 
     const openai = getOpenAI();
-    const productFile = req.file || null;
 
     const [brandRes, personasRes] = await Promise.all([
       query(`SELECT * FROM brands WHERE id = $1`, [brand_id]),
@@ -58,6 +58,14 @@ router.post(
     const kitCheck = isBrandSetupComplete(brandRes.rows[0]);
     if (!kitCheck.complete) {
       throw new AppError('Brand Setup incomplete. Complete Brand Setup before generating ads.', 400, { required_fields: kitCheck.missing_labels });
+    }
+
+    // Resolve product image: uploaded file takes priority; fall back to saved asset
+    let productResolved = null;
+    if (req.file) {
+      productResolved = { path: req.file.path, mime: req.file.mimetype, cleanup() {} };
+    } else if (product_asset_id) {
+      productResolved = await resolveAssetToFile(product_asset_id);
     }
 
     let selectedFormatIds = null;
@@ -71,16 +79,17 @@ router.post(
         openai,
         brand:            brandRes.rows[0],
         personas:         personasRes.rows,
-        productImagePath: productFile?.path  || null,
-        productImageMime: productFile?.mimetype || null,
+        productImagePath: productResolved?.path  || null,
+        productImageMime: productResolved?.mime || null,
         strategy:         strategy    || '',
         conceptCount:     parseInt(concept_count, 10) || 5,
         aspectRatio:      aspect_ratio || 'square',
         selectedFormatIds,
       });
     } finally {
-      if (productFile?.path && fs.existsSync(productFile.path)) {
-        try { fs.unlinkSync(productFile.path); } catch {}
+      productResolved?.cleanup();
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch {}
       }
     }
 

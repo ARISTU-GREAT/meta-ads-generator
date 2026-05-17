@@ -55,6 +55,7 @@ async function composeCreativeStrategy({
   instructions,
   aspectRatio,
   promptStyle = 'balanced',
+  memoryContext = null,   // optional: formatted string from brandMemoryService
 }) {
   const brandLines = [
     brand.name            && `Brand name: ${brand.name}`,
@@ -72,6 +73,10 @@ async function composeCreativeStrategy({
     ? instructions.trim()
     : 'None — follow the reference layout and brand guidelines.';
 
+  const memorySection = memoryContext
+    ? `\n─── BRAND CREATIVE MEMORY ───────────────────────────────────\n${memoryContext}\n`
+    : '';
+
   const analysisPrompt = `You are a world-class Meta advertising creative director and AI image-prompt engineer.
 
 IMAGE 1 (first image below) = REFERENCE AD — existing ad whose layout and creative style to remix.
@@ -79,7 +84,7 @@ IMAGE 2 (second image below) = PRODUCT — the actual product to feature in the 
 
 ─── BRAND CONTEXT ───────────────────────────────────────────
 ${brandLines}
-
+${memorySection}
 ─── USER BRIEF ──────────────────────────────────────────────
 Instructions: ${userInstructions}
 Aspect ratio: ${aspectRatio}

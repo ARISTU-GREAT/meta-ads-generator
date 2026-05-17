@@ -260,6 +260,53 @@ CREATE INDEX IF NOT EXISTS idx_generated_ads_campaign_id  ON generated_ads(campa
 CREATE INDEX IF NOT EXISTS idx_generated_ads_brand_id     ON generated_ads(brand_id);
 CREATE INDEX IF NOT EXISTS idx_generated_ads_concept_id  ON generated_ads(concept_id);
 CREATE INDEX IF NOT EXISTS idx_generated_ads_status      ON generated_ads(status);
+
+-- ────────────────────────────────────────────────────────────
+-- CREATIVE_MEMORIES — Brand Memory / Creative Intelligence
+-- ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS creative_memories (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  brand_id         UUID NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+  campaign_id      UUID REFERENCES campaigns(id) ON DELETE SET NULL,
+  source_type      TEXT NOT NULL DEFAULT 'manual_note',
+  title            TEXT,
+  image_url        TEXT,
+  summary          TEXT,
+  angle            TEXT,
+  hook             TEXT,
+  format           TEXT,
+  persona          TEXT,
+  visual_style     TEXT,
+  copy_style       TEXT,
+  performance_note TEXT,
+  metadata         JSONB DEFAULT '{}',
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_creative_memories_brand_id    ON creative_memories(brand_id);
+CREATE INDEX IF NOT EXISTS idx_creative_memories_source_type ON creative_memories(source_type);
+
+-- ────────────────────────────────────────────────────────────
+-- ANGLE_LIBRARY — Strategic creative angles per brand
+-- ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS angle_library (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  brand_id          UUID NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+  name              TEXT NOT NULL,
+  description       TEXT,
+  persona           TEXT,
+  pain_point        TEXT,
+  emotional_trigger TEXT,
+  hook_examples     JSONB DEFAULT '[]',
+  offer_strategy    TEXT,
+  status            TEXT NOT NULL DEFAULT 'active',
+  created_at        TIMESTAMPTZ DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_angle_library_brand_id ON angle_library(brand_id);
+CREATE INDEX IF NOT EXISTS idx_angle_library_status   ON angle_library(status);
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_brand_id  ON generation_jobs(brand_id);
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_status    ON generation_jobs(status);
 
@@ -274,7 +321,9 @@ BEGIN
 END;
 $$ LANGUAGE 'plpgsql';
 
-DROP TRIGGER IF EXISTS update_users_updated_at           ON users;
+DROP TRIGGER IF EXISTS update_creative_memories_updated_at ON creative_memories;
+DROP TRIGGER IF EXISTS update_angle_library_updated_at    ON angle_library;
+DROP TRIGGER IF EXISTS update_users_updated_at             ON users;
 DROP TRIGGER IF EXISTS update_brands_updated_at          ON brands;
 DROP TRIGGER IF EXISTS update_brand_assets_updated_at    ON brand_assets;
 DROP TRIGGER IF EXISTS update_brand_personas_updated_at  ON brand_personas;
@@ -305,3 +354,7 @@ CREATE TRIGGER update_generation_jobs_updated_at
   BEFORE UPDATE ON generation_jobs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_campaigns_updated_at
   BEFORE UPDATE ON campaigns FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_creative_memories_updated_at
+  BEFORE UPDATE ON creative_memories FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_angle_library_updated_at
+  BEFORE UPDATE ON angle_library FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

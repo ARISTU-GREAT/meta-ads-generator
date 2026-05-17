@@ -2,6 +2,7 @@ const express      = require('express');
 const router       = express.Router();
 const brandService = require('../services/brandService');
 const { asyncHandler } = require('../utils/errors');
+const memoryRouter = require('./memory');
 
 // GET /api/brands
 router.get('/', asyncHandler(async (req, res) => {
@@ -49,5 +50,8 @@ router.post('/:id/personas', asyncHandler(async (req, res) => {
   const persona = await brandService.createPersona(req.params.id, req.body);
   res.status(201).json({ success: true, data: persona });
 }));
+
+// Memory routes — /api/brands/:brandId/memory[/...]
+router.use('/:brandId/memory', memoryRouter);
 
 module.exports = router;
