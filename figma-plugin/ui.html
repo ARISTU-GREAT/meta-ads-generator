@@ -108,6 +108,18 @@
     .btn-import:active:not(:disabled) { transform: scale(0.99); }
     .btn-import:disabled { opacity: 0.55; cursor: not-allowed; }
 
+    /* ── Test button ── */
+    .btn-test {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      width: 100%; margin-top: 7px; padding: 8px 16px;
+      border-radius: 8px; border: 1.5px solid #e0e0e8;
+      font-size: 12px; font-weight: 500; font-family: inherit;
+      cursor: pointer; background: #f8f8fb; color: #555;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-test:hover:not(:disabled) { background: #f0f0f8; border-color: #c0c0cc; color: #333; }
+    .btn-test:disabled { opacity: 0.55; cursor: not-allowed; }
+
     .spinner {
       width: 12px; height: 12px;
       border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff;
@@ -209,6 +221,10 @@
     <span id="btn-label">✦ Import Creative</span>
   </button>
 
+  <button class="btn-test" id="btn-test" onclick="importTestFrame()" title="Import a hardcoded 1080×1080 frame to verify the plugin works">
+    ⬡ Import Test Frame
+  </button>
+
   <div class="status" id="status"></div>
   <div class="error-stack" id="error-stack"></div>
 
@@ -222,6 +238,7 @@
     const statusEl   = document.getElementById('status');
     const stackEl    = document.getElementById('error-stack');
     const btnEl      = document.getElementById('btn-import');
+    const testBtnEl  = document.getElementById('btn-test');
     const spinnerEl  = document.getElementById('spinner');
     const labelEl    = document.getElementById('btn-label');
     const safeModeEl = document.getElementById('safe-mode-toggle');
@@ -248,9 +265,18 @@
 
     function setLoading(on) {
       btnEl.disabled = on;
+      if (testBtnEl) testBtnEl.disabled = on;
       btnEl.classList.toggle('loading', on);
       spinnerEl.style.display = on ? 'block' : 'none';
       labelEl.textContent = on ? 'Importing…' : '✦ Import Creative';
+    }
+
+    function importTestFrame() {
+      clearStatus();
+      setLoading(true);
+      if (testBtnEl) testBtnEl.textContent = '⬡ Testing…';
+      setStatus('progress', 'Running test import…');
+      parent.postMessage({ pluginMessage: { type: 'test' } }, '*');
     }
 
     function importLayout() {
@@ -314,6 +340,7 @@
       }
 
       setLoading(false);
+      if (testBtnEl) testBtnEl.textContent = '⬡ Import Test Frame';
 
       if (msg.type === 'done') {
         setStatus('success', '✓ ' + (msg.message || 'Import complete'));
