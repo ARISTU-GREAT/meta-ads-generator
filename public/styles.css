@@ -61,6 +61,99 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Login Screen ───────────────────────────────────────────── */
+.login-screen {
+  position: fixed;
+  inset: 0;
+  background: #0f1117;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: #1a1d27;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 40px 36px 36px;
+  box-shadow: 0 32px 64px rgba(0,0,0,0.5);
+}
+.login-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+.login-logo-mark { color: var(--accent); font-size: 1.1rem; }
+.login-subtitle {
+  font-size: 0.8125rem;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 32px;
+}
+.login-form { display: flex; flex-direction: column; gap: 16px; }
+.login-field { display: flex; flex-direction: column; gap: 6px; }
+.login-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 0.02em;
+}
+.login-input {
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.9375rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.login-input::placeholder { color: rgba(255,255,255,0.2); }
+.login-input:focus {
+  border-color: var(--accent);
+  background: rgba(79,70,229,0.08);
+}
+.login-error {
+  font-size: 0.8125rem;
+  color: #f87171;
+  background: rgba(248,113,113,0.1);
+  border: 1px solid rgba(248,113,113,0.2);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.login-btn {
+  margin-top: 4px;
+  padding: 11px;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  font-family: inherit;
+}
+.login-btn:hover { background: var(--accent-h); }
+.login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Logout button in topbar */
+.topbar-btn-logout {
+  padding: 6px 10px;
+  font-size: 1rem;
+  color: var(--text-3);
+  border-color: transparent;
+  background: transparent;
+}
+.topbar-btn-logout:hover { color: var(--danger); border-color: transparent; background: var(--danger-bg); }
+
 /* ── Utilities ──────────────────────────────────────────────── */
 .hidden { display: none !important; }
 .text-muted   { color: var(--text-3); }

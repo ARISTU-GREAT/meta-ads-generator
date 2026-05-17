@@ -10,7 +10,32 @@
 
 <div id="toast-container" class="toast-container"></div>
 
-<div class="app-shell">
+<!-- ── LOGIN SCREEN ──────────────────────────────────────────────── -->
+<div id="login-screen" class="login-screen hidden">
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="login-logo-mark">✦</span>
+      AdFlow
+    </div>
+    <p class="login-subtitle">Campaign Studio</p>
+    <form class="login-form" onsubmit="Auth.submitLogin(event)">
+      <div class="login-field">
+        <label class="login-label">Email</label>
+        <input class="login-input" type="email" id="login-email" autocomplete="email"
+               placeholder="admin@example.com" required />
+      </div>
+      <div class="login-field">
+        <label class="login-label">Password</label>
+        <input class="login-input" type="password" id="login-password" autocomplete="current-password"
+               placeholder="••••••••" required />
+      </div>
+      <div class="login-error hidden" id="login-error"></div>
+      <button class="login-btn" type="submit" id="login-btn">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<div class="app-shell hidden" id="app-shell">
 
   <!-- ── TOP BAR ───────────────────────────────────────────────────── -->
   <header class="topbar">
@@ -53,6 +78,7 @@
     <div class="topbar-end">
       <button class="topbar-btn topbar-btn-primary" onclick="App.openModal('modal-new-campaign')">+ New Campaign</button>
       <button class="topbar-btn" onclick="App.openBrandSetup()">Brand Setup</button>
+      <button class="topbar-btn topbar-btn-logout" id="btn-logout" onclick="Auth.logout()" title="Sign out">⎋</button>
     </div>
   </header>
 

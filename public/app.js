@@ -3,6 +3,75 @@
    Vanilla JS SPA, no build step
    ───────────────────────────────────────────────────────────── */
 
+// ── Auth ─────────────────────────────────────────────────────
+const Auth = (() => {
+  function showLogin() {
+    document.getElementById('login-screen')?.classList.remove('hidden');
+    document.getElementById('app-shell')?.classList.add('hidden');
+    document.getElementById('login-email')?.focus();
+  }
+
+  function showApp() {
+    document.getElementById('login-screen')?.classList.add('hidden');
+    document.getElementById('app-shell')?.classList.remove('hidden');
+  }
+
+  async function check() {
+    try {
+      const res  = await fetch('/api/auth/me');
+      const data = await res.json();
+      if (data.authenticated) {
+        showApp();
+        App.init();
+      } else {
+        showLogin();
+      }
+    } catch {
+      showLogin();
+    }
+  }
+
+  async function submitLogin(e) {
+    e.preventDefault();
+    const btn   = document.getElementById('login-btn');
+    const errEl = document.getElementById('login-error');
+    const email    = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    errEl.classList.add('hidden');
+    errEl.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+
+    try {
+      const res  = await fetch('/api/auth/login', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Login failed');
+      showApp();
+      App.init();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  }
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    showLogin();
+    document.getElementById('login-password').value = '';
+  }
+
+  document.addEventListener('DOMContentLoaded', check);
+
+  return { submitLogin, logout };
+})();
+
 const App = (() => {
 
   // ── Workspace State Machine ──────────────────────────────────
@@ -1420,7 +1489,7 @@ const App = (() => {
     await Promise.all([loadBrands(), loadFormats()]);
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  // init is called by Auth after login check — not auto-fired here
 
   // ── Debug helper ─────────────────────────────────────────────
   window.__debugUI = () => {
@@ -1442,6 +1511,9 @@ const App = (() => {
 
   // ── Public API ────────────────────────────────────────────────
   return {
+    // Boot — called by Auth after session check
+    init,
+
     // Dropdowns
     toggleDropdown, closeAllDropdowns,
 
