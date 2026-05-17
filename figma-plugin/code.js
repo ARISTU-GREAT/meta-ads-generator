@@ -685,13 +685,24 @@ async function importEditableDesign(layout, importImages) {
     var node  = null;
 
     try {
+      // Normalise field variants: camelCase and snake_case both accepted
+      var layerFill       = layer.fill || layer.background_color || layer.background || '';
+      var layerRadius     = layer.borderRadius != null ? layer.borderRadius : (layer.border_radius != null ? layer.border_radius : null);
+      var layerFontFamily = layer.fontFamily || layer.font_family || 'Inter';
+      var layerFontSize   = layer.fontSize   != null ? layer.fontSize   : (layer.font_size   != null ? layer.font_size   : null);
+      var layerFontWeight = layer.fontWeight  != null ? layer.fontWeight  : (layer.font_weight  != null ? layer.font_weight  : null);
+      var layerLineHeight = layer.lineHeight  != null ? layer.lineHeight  : (layer.line_height  != null ? layer.line_height  : null);
+      var layerImageUrl   = layer.imageUrl   || layer.image_url   || null;
+      var layerTextFill   = layer.textFill   || layer.text_fill   || '#ffffff';
+      var layerAlign      = layer.align      || layer.textAlign   || layer.text_align || 'left';
+
       if (type === 'rectangle') {
         var r = figma.createRectangle();
         r.name = name;
         r.x = x; r.y = y;
         r.resize(w, h);
-        r.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || '#888888') }];
-        r.cornerRadius = Math.max(0, safeNum(layer.borderRadius, 0));
+        r.fills = [{ type: 'SOLID', color: hexToRGB(layerFill || '#888888') }];
+        r.cornerRadius = Math.max(0, safeNum(layerRadius, 0));
         if (layer.opacity != null) r.opacity = Math.max(0, Math.min(1, safeNum(layer.opacity, 1)));
         node = r;
 
@@ -700,7 +711,7 @@ async function importEditableDesign(layout, importImages) {
         el.name = name;
         el.x = x; el.y = y;
         el.resize(w, h);
-        el.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || '#888888') }];
+        el.fills = [{ type: 'SOLID', color: hexToRGB(layerFill || '#888888') }];
         if (layer.opacity != null) el.opacity = Math.max(0, Math.min(1, safeNum(layer.opacity, 1)));
         node = el;
 
@@ -710,24 +721,35 @@ async function importEditableDesign(layout, importImages) {
         ln.x = x; ln.y = y;
         var lh = Math.max(1, safeNum(layer.strokeWeight, 2));
         ln.resize(w, lh);
-        ln.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || layer.color || '#888888') }];
+        ln.fills = [{ type: 'SOLID', color: hexToRGB(layerFill || layer.color || '#888888') }];
         node = ln;
 
       } else if (type === 'text') {
-        var fontW  = safeNum(layer.fontWeight, 400) >= 600 ? 'Bold' : 'Regular';
-        var fontKey = 'Inter_' + fontW;
+        var txtFamily = layerFontFamily;
+        var fontW  = safeNum(layerFontWeight, 400) >= 600 ? 'Bold' : 'Regular';
+        var fontKey = txtFamily + '_' + fontW;
         if (!loadedFonts[fontKey]) {
-          try { await figma.loadFontAsync({ family: 'Inter', style: fontW }); } catch (_) { fontW = 'Regular'; }
-          loadedFonts[fontKey] = true;
+          try { await figma.loadFontAsync({ family: txtFamily, style: fontW }); loadedFonts[fontKey] = true; }
+          catch (_) {
+            txtFamily = 'Inter';
+            fontKey = 'Inter_' + fontW;
+            if (!loadedFonts[fontKey]) {
+              try { await figma.loadFontAsync({ family: 'Inter', style: fontW }); } catch (__) { fontW = 'Regular'; }
+              loadedFonts[fontKey] = true;
+            }
+          }
         }
         var txt = figma.createText();
         txt.name = name;
-        txt.fontName = { family: 'Inter', style: fontW };
-        txt.fontSize = Math.max(1, safeNum(layer.fontSize, 32));
+        txt.fontName = { family: txtFamily, style: fontW };
+        txt.fontSize = Math.max(1, safeNum(layerFontSize, 32));
         txt.characters = String(layer.text || '');
-        txt.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || '#000000') }];
+        txt.fills = [{ type: 'SOLID', color: hexToRGB(layerFill || layer.textFill || layer.text_fill || '#000000') }];
         var alignMap2 = { left: 'LEFT', center: 'CENTER', right: 'RIGHT' };
-        try { txt.textAlignHorizontal = alignMap2[String(layer.align || 'left').toLowerCase()] || 'LEFT'; } catch (_) {}
+        try { txt.textAlignHorizontal = alignMap2[String(layerAlign).toLowerCase()] || 'LEFT'; } catch (_) {}
+        if (layerLineHeight != null) {
+          try { txt.lineHeight = { value: safeNum(layerLineHeight, 1.4) * safeNum(layerFontSize, 32), unit: 'PIXELS' }; } catch (_) {}
+        }
         try { txt.textAutoResize = 'NONE'; txt.resize(w, h); } catch (_) {}
         txt.x = x; txt.y = y;
         node = txt;
@@ -739,31 +761,39 @@ async function importEditableDesign(layout, importImages) {
         btnF.x = x; btnF.y = y;
         btnF.resize(w, h);
         btnF.clipsContent = true;
-        btnF.cornerRadius = Math.max(0, safeNum(layer.borderRadius, 8));
+        btnF.cornerRadius = Math.max(0, safeNum(layerRadius, 8));
         btnF.fills = [];
 
         var btnBg = figma.createRectangle();
         btnBg.name = 'Button Background';
         btnBg.x = 0; btnBg.y = 0;
         btnBg.resize(w, h);
-        btnBg.cornerRadius = Math.max(0, safeNum(layer.borderRadius, 8));
-        btnBg.fills = [{ type: 'SOLID', color: hexToRGB(layer.fill || '#5b6af0') }];
+        btnBg.cornerRadius = Math.max(0, safeNum(layerRadius, 8));
+        btnBg.fills = [{ type: 'SOLID', color: hexToRGB(layerFill || '#5b6af0') }];
         btnF.appendChild(btnBg);
 
         var btnText = String(layer.text || '');
         if (btnText) {
-          var btnW2 = safeNum(layer.fontWeight, 700) >= 600 ? 'Bold' : 'Regular';
-          var btnKey = 'Inter_' + btnW2;
+          var btnFamily = layerFontFamily;
+          var btnW2 = safeNum(layerFontWeight, 700) >= 600 ? 'Bold' : 'Regular';
+          var btnKey = btnFamily + '_' + btnW2;
           if (!loadedFonts[btnKey]) {
-            try { await figma.loadFontAsync({ family: 'Inter', style: btnW2 }); } catch (_) { btnW2 = 'Regular'; }
-            loadedFonts[btnKey] = true;
+            try { await figma.loadFontAsync({ family: btnFamily, style: btnW2 }); loadedFonts[btnKey] = true; }
+            catch (_) {
+              btnFamily = 'Inter';
+              btnKey = 'Inter_' + btnW2;
+              if (!loadedFonts[btnKey]) {
+                try { await figma.loadFontAsync({ family: 'Inter', style: btnW2 }); } catch (__) { btnW2 = 'Regular'; }
+                loadedFonts[btnKey] = true;
+              }
+            }
           }
           var btnLbl2 = figma.createText();
           btnLbl2.name = 'Button Label';
-          btnLbl2.fontName = { family: 'Inter', style: btnW2 };
-          btnLbl2.fontSize = Math.max(1, safeNum(layer.fontSize, 28));
+          btnLbl2.fontName = { family: btnFamily, style: btnW2 };
+          btnLbl2.fontSize = Math.max(1, safeNum(layerFontSize, 28));
           btnLbl2.characters = btnText;
-          btnLbl2.fills = [{ type: 'SOLID', color: hexToRGB(layer.textFill || '#ffffff') }];
+          btnLbl2.fills = [{ type: 'SOLID', color: hexToRGB(layerTextFill) }];
           try { btnLbl2.textAlignHorizontal = 'CENTER'; } catch (_) {}
           try {
             btnLbl2.textAutoResize = 'WIDTH_AND_HEIGHT';
@@ -782,7 +812,7 @@ async function importEditableDesign(layout, importImages) {
         imgF2.clipsContent = true;
         imgF2.fills = [{ type: 'SOLID', color: { r: 0.82, g: 0.84, b: 0.88 } }];
 
-        var imgUrl = layer.imageUrl || null;
+        var imgUrl = layerImageUrl;
         var imgLoaded = false;
         if (importImages && imgUrl && typeof imgUrl === 'string') {
           figma.ui.postMessage({ type: 'progress', message: 'Fetching: ' + name + '…' });
