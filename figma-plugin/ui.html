@@ -221,8 +221,8 @@
     <span id="btn-label">✦ Import Creative</span>
   </button>
 
-  <button class="btn-test" id="btn-test" onclick="importTestFrame()" title="Import a hardcoded 1080×1080 frame to verify the plugin works">
-    ⬡ Import Test Frame
+  <button class="btn-test" id="btn-test" onclick="importTestFrame()" title="Creates a test frame to verify the plugin runtime works — use this first">
+    ⬡ Test Plugin
   </button>
 
   <div class="status" id="status"></div>
@@ -275,7 +275,7 @@
       clearStatus();
       setLoading(true);
       if (testBtnEl) testBtnEl.textContent = '⬡ Testing…';
-      setStatus('progress', 'Running test import…');
+      setStatus('progress', 'Creating test frame — verifying plugin runtime…');
       parent.postMessage({ pluginMessage: { type: 'test' } }, '*');
     }
 
@@ -340,7 +340,7 @@
       }
 
       setLoading(false);
-      if (testBtnEl) testBtnEl.textContent = '⬡ Import Test Frame';
+      if (testBtnEl) testBtnEl.textContent = '⬡ Test Plugin';
 
       if (msg.type === 'done') {
         setStatus('success', '✓ ' + (msg.message || 'Import complete'));

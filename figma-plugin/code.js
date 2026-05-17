@@ -1,17 +1,95 @@
-// AdFlow Creative Importer — Figma Plugin (code.js)
-// Defensive startup: showUI is wrapped, nothing runs at load time except registration.
+// AdFlow Creative Importer — Figma Plugin
+// Minimal, sandbox-safe: no ??, no ?., no require, no DOM, no Node APIs.
+// Only figma.showUI and figma.ui.onmessage run at startup.
 
-try {
-  figma.showUI(__html__, { width: 420, height: 620 });
-} catch (error) {
-  console.error('PLUGIN SHOW UI ERROR', error);
+figma.showUI(__html__, { width: 420, height: 580 });
+
+figma.ui.onmessage = async function(msg) {
+  if (!msg) return;
+  try {
+    if (msg.type === 'test')   { await createTestFrame(); return; }
+    if (msg.type === 'import') { await handleImport(msg); return; }
+    if (msg.type === 'close')  { figma.closePlugin(); }
+  } catch (err) {
+    var errMsg   = (err && err.message) ? err.message : String(err);
+    var errStack = (err && err.stack)   ? err.stack   : '';
+    try { figma.ui.postMessage({ type: 'error', message: errMsg, stack: errStack }); } catch (_) {}
+  }
+};
+
+// ── Test frame — verifies the plugin runtime works ────────────────────────────
+
+async function createTestFrame() {
+  figma.ui.postMessage({ type: 'progress', message: 'Loading font…' });
+  await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+
+  var frame = figma.createFrame();
+  frame.name = 'AdFlow Test';
+  frame.resize(1080, 1080);
+  frame.fills = [];
+
+  var bg = figma.createRectangle();
+  bg.name = 'Background';
+  bg.x = 0; bg.y = 0;
+  bg.resize(1080, 1080);
+  bg.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  frame.appendChild(bg);
+
+  var textNode = figma.createText();
+  textNode.fontName = { family: 'Inter', style: 'Regular' };
+  textNode.characters = 'Hello from AdFlow';
+  textNode.fontSize = 48;
+  textNode.x = 100;
+  textNode.y = 490;
+  textNode.fills = [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.1 } }];
+  frame.appendChild(textNode);
+
+  figma.currentPage.appendChild(frame);
+  figma.viewport.scrollAndZoomIntoView([frame]);
+  figma.currentPage.selection = [frame];
+
+  figma.ui.postMessage({ type: 'done', message: 'Test frame created — plugin works!' });
+}
+
+// ── Import handler ────────────────────────────────────────────────────────────
+
+async function handleImport(msg) {
+  var rawJson = msg.json;
+  if (!rawJson) {
+    figma.ui.postMessage({ type: 'error', message: 'No JSON provided', stack: '' });
+    return;
+  }
+  var layout;
+  try {
+    layout = JSON.parse(rawJson);
+  } catch (parseErr) {
+    figma.ui.postMessage({
+      type: 'error',
+      message: 'Invalid JSON: ' + parseErr.message,
+      stack: parseErr.stack || ''
+    });
+    return;
+  }
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) {
+    figma.ui.postMessage({ type: 'error', message: 'JSON must be an object', stack: '' });
+    return;
+  }
+  if (layout.schema && layout.schema !== 'creative-layout') {
+    figma.ui.postMessage({
+      type: 'error',
+      message: 'Expected schema "creative-layout", got "' + layout.schema + '"',
+      stack: ''
+    });
+    return;
+  }
+  await importCreative(layout);
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function hexToRGB(hex) {
   if (!hex || typeof hex !== 'string') return { r: 0.5, g: 0.5, b: 0.5 };
-  const clean = hex.replace(/^#/, '').trim();
+  var clean = hex.replace(/^#/, '').trim();
   if (clean.length === 3) {
     return {
       r: parseInt(clean[0] + clean[0], 16) / 255,
@@ -30,21 +108,21 @@ function hexToRGB(hex) {
   };
 }
 
-function safeN(v, fallback) { const n = Number(v); return isFinite(n) ? n : fallback; }
-function safeW(layer) { return Math.max(1, safeN(layer.width,  100)); }
-function safeH(layer) { return Math.max(1, safeN(layer.height, 100)); }
-function safeX(layer) { return safeN(layer.x, 0); }
-function safeY(layer) { return safeN(layer.y, 0); }
+function safeNum(v, fallback) {
+  var n = Number(v);
+  return isFinite(n) ? n : fallback;
+}
 
-// Handles both string hex "#FFFFFF" and object { type:'SOLID', color:'#hex' } fills
+// Handles both "#hex" string fills and { type:'SOLID', color:'#hex' } object fills
 function parseFills(fills) {
-  if (!Array.isArray(fills) || !fills.length) return [];
-  const result = [];
-  for (const f of fills) {
+  if (!Array.isArray(fills) || fills.length === 0) return [];
+  var result = [];
+  for (var i = 0; i < fills.length; i++) {
+    var f = fills[i];
     try {
       if (typeof f === 'string') {
         result.push({ type: 'SOLID', color: hexToRGB(f) });
-      } else if (f && (f.color || f.type === 'SOLID')) {
+      } else if (f && f.color) {
         result.push({ type: 'SOLID', color: hexToRGB(f.color) });
       }
     } catch (e) {
@@ -54,287 +132,199 @@ function parseFills(fills) {
   return result;
 }
 
-// Resolve layers from: layout.layers / .nodes / .children / .layout_json.layers
+// Supports: layout.layers / .nodes / .children / .layout_json.layers
 function resolveLayers(layout) {
-  if (Array.isArray(layout.layers))                                      return layout.layers;
-  if (Array.isArray(layout.nodes))                                       return layout.nodes;
-  if (Array.isArray(layout.children))                                    return layout.children;
-  if (layout.layout_json && Array.isArray(layout.layout_json.layers))   return layout.layout_json.layers;
+  if (Array.isArray(layout.layers))   return layout.layers;
+  if (Array.isArray(layout.nodes))    return layout.nodes;
+  if (Array.isArray(layout.children)) return layout.children;
+  if (layout.layout_json && Array.isArray(layout.layout_json.layers)) return layout.layout_json.layers;
   return [];
 }
 
-// Resolve canvas dimensions from root-level or canvas object
+// Supports: root width/height or canvas.width/height
 function resolveCanvas(layout) {
-  if (layout.canvas && (layout.canvas.width || layout.canvas.height)) {
+  if (layout.canvas && layout.canvas.width) {
     return {
-      width:  safeN(layout.canvas.width,  1080),
-      height: safeN(layout.canvas.height, 1080),
+      width:  safeNum(layout.canvas.width,  1080),
+      height: safeNum(layout.canvas.height, 1080),
     };
   }
   return {
-    width:  safeN(layout.width,  1080),
-    height: safeN(layout.height, 1080),
+    width:  safeNum(layout.width,  1080),
+    height: safeNum(layout.height, 1080),
   };
 }
 
-// ── Font loading — Inter Regular only, always safe ────────────────────────────
-
-const INTER_REGULAR = { family: 'Inter', style: 'Regular' };
-
-async function loadInterRegular() {
-  console.log('[AdFlow] loading Inter Regular…');
-  await figma.loadFontAsync(INTER_REGULAR);
-  console.log('[AdFlow] Inter Regular loaded');
+// Supports both content (AdFlow export) and text (test JSON) fields
+function getTextContent(layer) {
+  if (layer.content != null) return String(layer.content);
+  if (layer.text    != null) return String(layer.text);
+  return '';
 }
 
-// ── Node builders ─────────────────────────────────────────────────────────────
-
-function buildRectangle(layer) {
-  const w = safeW(layer), h = safeH(layer);
-  const x = safeX(layer), y = safeY(layer);
-  console.log('[AdFlow] RECT "' + (layer.name || '?') + '" ' + w + 'x' + h + ' @(' + x + ',' + y + ')');
-
-  const rect = figma.createRectangle();
-  rect.name = String(layer.name || 'Rectangle');
-  rect.x = x;
-  rect.y = y;
-  rect.resize(w, h);
-
-  if (layer.cornerRadius != null && isFinite(Number(layer.cornerRadius))) {
-    rect.cornerRadius = Math.max(0, Number(layer.cornerRadius));
-  }
-  if (typeof layer.opacity === 'number' && isFinite(layer.opacity)) {
-    rect.opacity = Math.max(0, Math.min(1, layer.opacity));
-  }
-
-  const fills = parseFills(layer.fills);
-  rect.fills = fills.length ? fills : [{ type: 'SOLID', color: { r: 0.88, g: 0.88, b: 0.9 } }];
-  return rect;
+// Supports both fontSize (root) and style.fontSize
+function getTextFontSize(layer) {
+  var style = layer.style || {};
+  var size  = (layer.fontSize != null) ? layer.fontSize : style.fontSize;
+  return Math.max(1, safeNum(size, 32));
 }
 
-async function buildImagePlaceholder(layer) {
-  const w = safeW(layer), h = safeH(layer);
-  const x = safeX(layer), y = safeY(layer);
-  const name = String(layer.name || 'Image');
-  console.log('[AdFlow] IMAGE "' + name + '" ' + w + 'x' + h + ' @(' + x + ',' + y + ')');
-
-  const frame = figma.createFrame();
-  frame.name = name;
-  frame.x = x;
-  frame.y = y;
-  frame.resize(w, h);
-  frame.clipsContent = true;
-  frame.fills = [{ type: 'SOLID', color: { r: 0.85, g: 0.85, b: 0.87 } }];
-
-  try {
-    const label = figma.createText();
-    label.fontName = INTER_REGULAR;
-    label.fontSize = Math.max(11, Math.round(Math.min(w, h) * 0.06));
-    label.fills = [{ type: 'SOLID', color: { r: 0.38, g: 0.40, b: 0.45 } }];
-    label.characters = '◈  ' + name;
-    label.textAlignHorizontal = 'CENTER';
-    label.x = Math.max(0, Math.round((w - label.width)  / 2));
-    label.y = Math.max(0, Math.round((h - label.height) / 2));
-    frame.appendChild(label);
-  } catch (e) {
-    console.warn('[AdFlow] IMAGE label skipped:', e.message);
-  }
-
-  return frame;
+// Supports both color (root) and style.color
+function getTextColor(layer) {
+  var style = layer.style || {};
+  if (layer.color != null)  return layer.color;
+  if (style.color != null)  return style.color;
+  return null;
 }
 
-async function buildText(layer) {
-  const w = safeW(layer), h = safeH(layer);
-  const x = safeX(layer), y = safeY(layer);
-
-  // Support both format variants: content/text, style.fontSize/fontSize, style.color/color
-  const style      = layer.style || {};
-  const characters = String(layer.content != null ? layer.content : (layer.text != null ? layer.text : ''));
-  const fontSize   = safeN(layer.fontSize ?? style.fontSize, 32);
-  const colorHex   = layer.color ?? style.color ?? null;
-  const textAlign  = (layer.textAlign ?? style.textAlign ?? 'LEFT').toUpperCase();
-
-  const name = String(layer.name || 'Text');
-  console.log('[AdFlow] TEXT "' + name + '" size=' + fontSize + ' chars=' + characters.length);
-
-  const text = figma.createText();
-  text.name = name;
-  text.x = x;
-  text.y = y;
-  text.fontName = INTER_REGULAR;
-  text.fontSize = Math.max(1, fontSize);
-  text.characters = characters;
-
-  if (colorHex) {
-    try { text.fills = [{ type: 'SOLID', color: hexToRGB(colorHex) }]; } catch (e) {
-      console.warn('[AdFlow] TEXT color failed:', e.message);
-    }
-  }
-
-  const H_ALIGN = { CENTER: 'CENTER', LEFT: 'LEFT', RIGHT: 'RIGHT' };
-  try { text.textAlignHorizontal = H_ALIGN[textAlign] || 'LEFT'; } catch {}
-
-  try {
-    text.textAutoResize = 'NONE';
-    text.resize(w, h);
-  } catch (e) {
-    console.warn('[AdFlow] TEXT resize skipped:', e.message);
-  }
-
-  return text;
+// Supports both textAlign (root) and style.textAlign
+function getTextAlign(layer) {
+  var style = layer.style || {};
+  var align = layer.textAlign || style.textAlign || 'LEFT';
+  return String(align).toUpperCase();
 }
 
 // ── Main import ───────────────────────────────────────────────────────────────
 
 async function importCreative(layout) {
-  console.log('[AdFlow] importCreative start');
+  var layers = resolveLayers(layout);
+  var canvas = resolveCanvas(layout);
+  var W      = Math.max(1, canvas.width);
+  var H      = Math.max(1, canvas.height);
+  var meta   = layout.meta || {};
 
-  const layers = resolveLayers(layout);
-  const canvas = resolveCanvas(layout);
-  const W      = Math.max(1, canvas.width);
-  const H      = Math.max(1, canvas.height);
-  const meta   = layout.meta || {};
-
-  console.log('[AdFlow] canvas:', W + 'x' + H, '| layers:', layers.length);
-
-  figma.ui.postMessage({ type: 'progress', message: 'Loading fonts…' });
-  await loadInterRegular();
+  console.log('[AdFlow] canvas: ' + W + 'x' + H + ' | layers: ' + layers.length);
+  figma.ui.postMessage({ type: 'progress', message: 'Loading font…' });
+  await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
 
   figma.ui.postMessage({ type: 'progress', message: 'Building frame (' + layers.length + ' layers)…' });
 
-  const frame = figma.createFrame();
-  const frameName = [meta.brand_name, meta.layout_type].filter(Boolean).join(' — ') || 'AdFlow Creative';
+  var brandName  = meta.brand_name  || '';
+  var layoutType = meta.layout_type || '';
+  var frameName  = (brandName || layoutType)
+    ? [brandName, layoutType].filter(Boolean).join(' — ')
+    : 'AdFlow Creative';
+
+  var frame = figma.createFrame();
   frame.name = frameName;
   frame.resize(W, H);
   frame.clipsContent = true;
   frame.fills = [];
   console.log('[AdFlow] root frame "' + frameName + '" ' + W + 'x' + H);
 
-  const SUPPORTED = new Set(['RECTANGLE', 'IMAGE', 'TEXT']);
-  let built = 0;
-  let skipped = 0;
+  var built   = 0;
+  var skipped = 0;
 
-  for (let i = 0; i < layers.length; i++) {
-    const layer = layers[i];
-    const type  = String(layer.type || '').toUpperCase();
+  for (var i = 0; i < layers.length; i++) {
+    var layer = layers[i];
+    var type  = String(layer.type || '').toUpperCase();
+    var w     = Math.max(1, safeNum(layer.width,  100));
+    var h     = Math.max(1, safeNum(layer.height, 100));
+    var x     = safeNum(layer.x, 0);
+    var y     = safeNum(layer.y, 0);
+
     console.log('[AdFlow] layer ' + (i + 1) + '/' + layers.length + ': ' + type + ' "' + (layer.name || '') + '"');
 
-    if (!SUPPORTED.has(type)) {
-      console.warn('[AdFlow] unsupported type "' + type + '" — skipping');
-      skipped++;
-      continue;
-    }
+    var node = null;
 
-    let node = null;
     try {
-      if      (type === 'RECTANGLE') node = buildRectangle(layer);
-      else if (type === 'IMAGE')     node = await buildImagePlaceholder(layer);
-      else if (type === 'TEXT')      node = await buildText(layer);
-    } catch (e) {
-      console.error('[AdFlow] layer "' + (layer.name || type) + '" failed:', e.message, e.stack);
+      if (type === 'RECTANGLE') {
+        var rect = figma.createRectangle();
+        rect.name = String(layer.name || 'Rectangle');
+        rect.x = x; rect.y = y;
+        rect.resize(w, h);
+        if (layer.cornerRadius != null && isFinite(Number(layer.cornerRadius))) {
+          rect.cornerRadius = Math.max(0, Number(layer.cornerRadius));
+        }
+        if (typeof layer.opacity === 'number' && isFinite(layer.opacity)) {
+          rect.opacity = Math.max(0, Math.min(1, layer.opacity));
+        }
+        var rFills = parseFills(layer.fills);
+        rect.fills = rFills.length ? rFills : [{ type: 'SOLID', color: { r: 0.88, g: 0.88, b: 0.9 } }];
+        node = rect;
+
+      } else if (type === 'IMAGE') {
+        var imgFrame = figma.createFrame();
+        imgFrame.name = String(layer.name || 'Image');
+        imgFrame.x = x; imgFrame.y = y;
+        imgFrame.resize(w, h);
+        imgFrame.clipsContent = true;
+        imgFrame.fills = [{ type: 'SOLID', color: { r: 0.85, g: 0.85, b: 0.87 } }];
+        try {
+          var lbl = figma.createText();
+          lbl.fontName = { family: 'Inter', style: 'Regular' };
+          lbl.fontSize = Math.max(11, Math.round(Math.min(w, h) * 0.06));
+          lbl.fills    = [{ type: 'SOLID', color: { r: 0.38, g: 0.40, b: 0.45 } }];
+          lbl.characters = String('◈  ' + String(layer.name || 'Image'));
+          lbl.textAlignHorizontal = 'CENTER';
+          lbl.x = Math.max(0, Math.round((w - lbl.width)  / 2));
+          lbl.y = Math.max(0, Math.round((h - lbl.height) / 2));
+          imgFrame.appendChild(lbl);
+        } catch (lblErr) {
+          console.warn('[AdFlow] IMAGE label skipped: ' + lblErr.message);
+        }
+        node = imgFrame;
+
+      } else if (type === 'TEXT') {
+        var txt = figma.createText();
+        txt.name     = String(layer.name || 'Text');
+        txt.x        = x; txt.y = y;
+        txt.fontName = { family: 'Inter', style: 'Regular' };
+        txt.fontSize = getTextFontSize(layer);
+        txt.characters = getTextContent(layer);
+
+        var colorHex = getTextColor(layer);
+        if (colorHex) {
+          try { txt.fills = [{ type: 'SOLID', color: hexToRGB(colorHex) }]; } catch (_) {}
+        }
+
+        var alignMap = { CENTER: 'CENTER', LEFT: 'LEFT', RIGHT: 'RIGHT' };
+        var alignKey = getTextAlign(layer);
+        try { txt.textAlignHorizontal = alignMap[alignKey] || 'LEFT'; } catch (_) {}
+
+        try {
+          txt.textAutoResize = 'NONE';
+          txt.resize(w, h);
+        } catch (_) {
+          console.warn('[AdFlow] TEXT resize skipped for "' + String(layer.name || '') + '"');
+        }
+        node = txt;
+
+      } else {
+        console.warn('[AdFlow] unsupported type "' + type + '" — skipping "' + String(layer.name || '') + '"');
+        skipped++;
+        continue;
+      }
+
+    } catch (layerErr) {
+      console.error('[AdFlow] layer "' + String(layer.name || type) + '" failed: ' + layerErr.message);
       try {
-        const fallback = figma.createRectangle();
-        fallback.name = '(error) ' + (layer.name || type);
-        fallback.x = safeX(layer);
-        fallback.y = safeY(layer);
-        fallback.resize(safeW(layer), safeH(layer));
-        fallback.fills = [{ type: 'SOLID', color: { r: 1, g: 0.3, b: 0.3 } }];
-        node = fallback;
-      } catch {}
+        var errRect = figma.createRectangle();
+        errRect.name = '(error) ' + String(layer.name || type);
+        errRect.x = x; errRect.y = y;
+        errRect.resize(w, h);
+        errRect.fills = [{ type: 'SOLID', color: { r: 1, g: 0.3, b: 0.3 } }];
+        node = errRect;
+      } catch (_) {}
     }
 
     if (node) {
       try {
         frame.appendChild(node);
         built++;
-      } catch (e) {
-        console.error('[AdFlow] appendChild failed:', e.message);
+      } catch (appendErr) {
+        console.error('[AdFlow] appendChild failed: ' + appendErr.message);
       }
     }
   }
-
-  console.log('[AdFlow] built:', built, '| skipped:', skipped);
 
   figma.currentPage.appendChild(frame);
   figma.viewport.scrollAndZoomIntoView([frame]);
   figma.currentPage.selection = [frame];
 
   figma.ui.postMessage({
-    type: 'done',
+    type:    'done',
     message: 'Imported "' + frameName + '" — ' + built + ' layer' + (built !== 1 ? 's' : ''),
   });
-  console.log('[AdFlow] import complete — "' + frameName + '"');
+  console.log('[AdFlow] import complete | built: ' + built + ' | skipped: ' + skipped);
 }
-
-// ── Message handler ───────────────────────────────────────────────────────────
-
-figma.ui.onmessage = async (msg) => {
-  try {
-    console.log('PLUGIN MESSAGE', msg && msg.type);
-
-    if (msg.type === 'test') {
-      // Hardcoded minimal layout — used to verify the plugin core works
-      const testLayout = {
-        schema: 'creative-layout',
-        width:  1080,
-        height: 1080,
-        layers: [
-          {
-            type: 'RECTANGLE', name: 'Background',
-            x: 0, y: 0, width: 1080, height: 1080,
-            fills: ['#5b6af0'],
-          },
-          {
-            type: 'TEXT', name: 'Headline',
-            text: 'Test Creative',
-            x: 120, y: 120, width: 840, height: 120,
-            fontSize: 64, color: '#ffffff',
-          },
-        ],
-      };
-      await importCreative(testLayout);
-      return;
-    }
-
-    if (msg.type === 'import') {
-      let layout;
-      try {
-        layout = typeof msg.json === 'string' ? JSON.parse(msg.json) : msg.json;
-      } catch (e) {
-        figma.ui.postMessage({ type: 'error', message: 'Invalid JSON: ' + e.message, stack: e.stack || '' });
-        return;
-      }
-
-      if (!layout || typeof layout !== 'object' || Array.isArray(layout)) {
-        figma.ui.postMessage({ type: 'error', message: 'JSON must be an object', stack: '' });
-        return;
-      }
-
-      if (layout.schema && layout.schema !== 'creative-layout') {
-        figma.ui.postMessage({
-          type: 'error',
-          message: 'Not an AdFlow layout (schema: "' + layout.schema + '")\nExpected: "creative-layout"',
-          stack: '',
-        });
-        return;
-      }
-
-      await importCreative(layout);
-      return;
-    }
-
-    if (msg.type === 'close') {
-      figma.closePlugin();
-    }
-
-  } catch (error) {
-    console.error('PLUGIN IMPORT ERROR', error);
-    try {
-      figma.ui.postMessage({
-        type:    'error',
-        message: error.message || String(error),
-        stack:   error.stack   || '',
-      });
-    } catch {}
-  }
-};
