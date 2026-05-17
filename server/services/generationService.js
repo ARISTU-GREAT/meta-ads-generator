@@ -529,11 +529,19 @@ async function remixGenerateBatchStream({
       toFile(fs.createReadStream(productImagePath),   'product.png',   { type: productImageMime   || 'image/png' }),
     ]);
 
+    console.log('[generationService] calling OpenAI image edit:', {
+      model, size, prompt_length: prompt.length,
+      ref_path: referenceImagePath, prod_path: productImagePath,
+      ref_mime: referenceImageMime, prod_mime: productImageMime,
+      variation: i + 1,
+    });
+
     let openaiResponse;
     try {
       openaiResponse = await openai.images.edit({ model, image: [refFile, prodFile], prompt, size, n: 1 });
     } catch (err) {
       const detail = err?.error?.message || err?.message || 'Unknown OpenAI error';
+      console.error('[generationService] OpenAI image edit failed:', { model, detail, status: err?.status });
       throw new AppError(`Image generation failed (${model}): ${detail}`, err?.status || 502);
     }
 

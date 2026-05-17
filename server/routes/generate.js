@@ -109,6 +109,15 @@ router.post(
             reference_asset_id, product_asset_id } = req.body;
     const n = parseInt(count, 10) || 5;
 
+    console.log('[generate/stream] incoming request:', {
+      brand_id, campaign_id, aspect_ratio, count: n, speed_mode,
+      has_reference_file:  !!(req.files?.reference_image?.[0]),
+      has_product_file:    !!(req.files?.product_image?.[0]),
+      reference_asset_id:  reference_asset_id || null,
+      product_asset_id:    product_asset_id   || null,
+      instructions_length: (instructions || '').length,
+    });
+
     if (!brand_id) {
       sendEvent({ type: 'error', message: 'brand_id is required' });
       return res.end();
@@ -131,15 +140,33 @@ router.post(
 
     let refResolved, prodResolved;
     try {
-      [refResolved, prodResolved] = await Promise.all([
-        resolveImage(req.files?.reference_image?.[0], reference_asset_id, 'reference_image'),
-        resolveImage(req.files?.product_image?.[0],   product_asset_id,   'product_image'),
-      ]);
+      // Product image is always required
+      prodResolved = await resolveImage(
+        req.files?.product_image?.[0],
+        product_asset_id,
+        'product_image'
+      );
+
+      // Reference image is optional — if absent, reuse product (concepts mode with no ref)
+      const hasRef = !!(req.files?.reference_image?.[0]) || !!reference_asset_id;
+      if (hasRef) {
+        refResolved = await resolveImage(
+          req.files?.reference_image?.[0],
+          reference_asset_id,
+          'reference_image'
+        );
+      } else {
+        // No separate reference: use product image path directly (no extra temp file)
+        refResolved = { path: prodResolved.path, mime: prodResolved.mime, cleanup() {} };
+        console.log('[generate/stream] no reference image provided — using product as reference');
+      }
     } catch (err) {
+      console.error('[generate/stream] image resolve failed:', err.message);
       sendEvent({ type: 'error', message: err.message });
       return res.end();
     }
 
+    console.log('[generate/stream] images resolved — starting generation. ref:', refResolved.path, '| prod:', prodResolved.path);
     sendEvent({ type: 'start', count: n });
 
     try {
@@ -166,8 +193,12 @@ router.post(
         creativeStrategy: result.creativeStrategy,
       });
     } catch (err) {
-      console.error('[generate/stream] fatal error:', err.message);
-      sendEvent({ type: 'error', message: err.message });
+      console.error('[generate/stream] fatal generation error:', {
+        message:   err.message,
+        brand_id, aspect_ratio, count: n,
+        stack:     err.stack?.split('\n').slice(0,4).join(' | '),
+      });
+      sendEvent({ type: 'error', message: err.message || 'Image generation failed' });
     } finally {
       refResolved?.cleanup();
       prodResolved?.cleanup();

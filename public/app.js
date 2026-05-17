@@ -1222,8 +1222,16 @@ const App = (() => {
           throw new Error('Session expired. Please sign in again.');
         }
       }
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || response.statusText);
+      // Try JSON first, fall back to text, fall back to status code
+      let errMsg = '';
+      try {
+        const body = await response.json();
+        errMsg = body.error || body.message || '';
+      } catch {
+        try { errMsg = await response.text(); } catch {}
+      }
+      if (!errMsg) errMsg = `HTTP ${response.status}`;
+      throw new Error(errMsg);
     }
 
     const reader  = response.body.getReader();
@@ -1348,19 +1356,16 @@ const App = (() => {
         const startIdx = globalIdx;
         globalIdx += n;
 
-        if (!state.concepts.productFile && !state.remix.productFile) {
-          toast('Upload a product image in the Concepts panel', 'error');
+        // Check product image — file upload OR brand asset
+        const hasProdFile  = !!(state.concepts.productFile || state.remix.productFile);
+        const hasProdAsset = !!(state.concepts.productAssetId);
+        if (!hasProdFile && !hasProdAsset) {
+          toast('Upload or select a product image in the Concepts panel', 'error');
           break;
         }
 
-        // For concepts mode, we use the ref image from remix state as concept reference
-        const refFile  = state.remix.referenceFile;
+        const refFile  = state.remix.referenceFile;    // null if user hasn't set remix reference
         const prodFile = state.concepts.productFile || state.remix.productFile;
-
-        if (!prodFile) {
-          toast('Product image required for generation', 'error');
-          break;
-        }
 
         const instructions = [
           concept.angle ? `Angle: ${concept.angle}` : '',
@@ -1373,15 +1378,26 @@ const App = (() => {
         const formData = new FormData();
         formData.append('brand_id',    state.activeBrand.id);
         formData.append('campaign_id', state.activeCampaign.id);
-        if (refFile) formData.append('reference_image', refFile);
-        else         formData.append('reference_image', prodFile); // fallback: use product as both
-        formData.append('product_image', prodFile);
         formData.append('instructions',  instructions);
         formData.append('aspect_ratio',  document.getElementById('concept-ratio')?.value || 'square');
         formData.append('count',         n);
         formData.append('speed_mode',    state.speedMode);
 
+        // Reference image — only send if user uploaded a DIFFERENT reference in Remix panel
+        // If absent, the backend falls back to using the product image as reference
+        if (refFile) formData.append('reference_image', refFile);
+        else if (state.remix.referenceAssetId) formData.append('reference_asset_id', state.remix.referenceAssetId);
+        // (no reference → backend uses product as reference, avoids duplicate upload)
+
+        // Product image — file upload takes priority over brand asset
+        if (prodFile) {
+          formData.append('product_image', prodFile);
+        } else if (state.concepts.productAssetId) {
+          formData.append('product_asset_id', state.concepts.productAssetId);
+        }
+
         let conceptCompleted = 0;
+        let conceptError     = null;
 
         await streamGenerate('/generate/remix/stream', formData, (event) => {
           if (event.type === 'progress' && event.success) {
@@ -1398,8 +1414,16 @@ const App = (() => {
             const skIdx = startIdx + conceptCompleted - 1;
             updateGenerationProgress(completedTotal, totalAds);
             replaceSkeletonCard(skIdx, null);
+          } else if (event.type === 'error') {
+            conceptError = event.message;
+            console.error('[concepts/stream] server error event:', event.message);
           }
         });
+
+        if (conceptError && completedTotal === 0) {
+          // Surface the first concept error if nothing generated at all
+          throw new Error(conceptError);
+        }
       }
 
       toast(`${completedTotal} ads generated from ${plan.length} concepts!`);
