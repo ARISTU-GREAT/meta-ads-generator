@@ -1,0 +1,9 @@
+{
+  "name": "AdFlow Creative Importer",
+  "id": "adflow-creative-importer-v1",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page"
+}
