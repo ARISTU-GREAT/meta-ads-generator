@@ -1251,11 +1251,7 @@ const App = (() => {
     };
 
     try {
-      const res = await fetchApi('/api/editable-designs/generate', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
-      });
+      const res = await api.post('/editable-designs/generate', payload);
       if (!res.success) throw new Error(res.error || 'Generation failed');
 
       const { id: adId, layout } = res.data;
@@ -1731,7 +1727,7 @@ const App = (() => {
       editablePreviewEl.innerHTML = '<div style="color:#888;font-size:13px;padding:16px;">Loading preview…</div>';
 
       // Fetch layout JSON and render
-      fetchApi(`/api/editable-designs/${ad.id}`)
+      api.get(`/editable-designs/${ad.id}`)
         .then(res => {
           if (res.success && res.data) {
             renderEditableDesignPreview(res.data, editablePreviewEl);
