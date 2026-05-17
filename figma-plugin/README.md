@@ -95,6 +95,95 @@ To use your exact brand fonts, install them on your system before running the pl
 
 ---
 
+## Troubleshooting
+
+### "An error occurred while running this plugin"
+Try **Safe Mode** first: enable the toggle in the plugin UI and re-import.  
+Safe Mode skips font matching and layer grouping — the two most common crash points.
+
+**Common root causes:**
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Crash on import | Font unavailable in Figma | Enable Safe Mode |
+| Crash on import | `figma.group()` with 0 nodes | Enable Safe Mode (grouping is skipped) |
+| "Not an AdFlow layout" | Wrong JSON pasted | Export again from AdFlow Studio |
+| Red placeholder layers | Individual layer build failed | Check Figma console (Plugins → Development → Open Console) |
+| Text overflows bounds | Font metrics differ | Resize text layer manually |
+
+### Reading the console
+
+Open **Plugins → Development → Open Console** in Figma to see every `[AdFlow]` log line.
+The plugin logs each layer by type, name, and position. The first `[AdFlow]` line that
+stops appearing is where the error occurs.
+
+---
+
+## Minimal test JSON
+
+Use this to verify the plugin works before importing a real layout:
+
+```json
+{
+  "version": "1.0",
+  "schema": "creative-layout",
+  "figma_exportable": true,
+  "meta": {
+    "ad_id": "test-001",
+    "brand_name": "Test Brand",
+    "layout_type": "product_focus",
+    "aspect_ratio": "square"
+  },
+  "canvas": { "width": 1080, "height": 1080 },
+  "design_tokens": {
+    "colors": { "primary": "#5b6af0", "secondary": "#ffffff" },
+    "typography": { "headline": { "family": "Inter", "weight": 700, "size": 64 } },
+    "spacing": { "margin": 60, "padding": 32, "gap": 16 }
+  },
+  "layers": [
+    {
+      "id": "bg_1", "name": "Background", "type": "RECTANGLE",
+      "x": 0, "y": 0, "width": 1080, "height": 1080,
+      "fills": [{ "type": "SOLID", "color": "#5b6af0" }]
+    },
+    {
+      "id": "product_2", "name": "Product Image", "type": "IMAGE",
+      "x": 215, "y": 183, "width": 648, "height": 648
+    },
+    {
+      "id": "headline_3", "name": "Headline", "type": "TEXT",
+      "x": 60, "y": 54, "width": 960, "height": 128,
+      "content": "Your Headline Here",
+      "style": {
+        "fontFamily": "Inter", "fontWeight": 700, "fontSize": 64,
+        "color": "#ffffff", "textAlign": "center"
+      }
+    },
+    {
+      "id": "cta_bg_4", "name": "CTA Background", "type": "RECTANGLE",
+      "x": 372, "y": 960, "width": 336, "height": 60,
+      "cornerRadius": 10,
+      "fills": [{ "type": "SOLID", "color": "#ffffff" }]
+    },
+    {
+      "id": "cta_text_5", "name": "CTA Text", "type": "TEXT",
+      "x": 372, "y": 960, "width": 336, "height": 60,
+      "content": "Shop Now",
+      "style": {
+        "fontFamily": "Inter", "fontWeight": 600, "fontSize": 28,
+        "color": "#5b6af0", "textAlign": "center", "verticalAlign": "middle"
+      }
+    }
+  ],
+  "creative_intelligence": {}
+}
+```
+
+Expected result: a 1080×1080 frame with a purple background, grey image placeholder,
+white headline text, and a grouped CTA button.
+
+---
+
 ## Limitations (V1)
 
 - **No remote image fetching** — images are placeholders only; replace manually
