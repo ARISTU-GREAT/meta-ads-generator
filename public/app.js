@@ -224,7 +224,8 @@ const App = (() => {
     },
     genMode: 'image',  // 'image' | 'editable'
     memoryFilter: '',
-    avoidInstructions: '',  // shared across remix + concepts, persisted to localStorage
+    avoidInstructions: '',   // shared across remix + concepts, persisted to localStorage
+    showAvoidSection: true,  // both panels default to open
   };
 
   // ── Constants ────────────────────────────────────────────────
@@ -901,12 +902,12 @@ const App = (() => {
   const AVOID_MAX    = 300;
 
   function toggleAvoidSection(panel) {
+    var section = document.getElementById('avoid-section-' + panel);
     var body    = document.getElementById('avoid-body-' + panel);
-    var chevron = document.getElementById('avoid-chevron-' + panel);
     if (!body) return;
     var isOpen = !body.classList.contains('hidden');
     body.classList.toggle('hidden', isOpen);
-    if (chevron) chevron.textContent = isOpen ? '▸' : '▾';
+    if (section) section.classList.toggle('open', !isOpen);
   }
 
   function onAvoidInput(textarea) {
@@ -994,14 +995,14 @@ const App = (() => {
     _updateAvoidCounter('avoid-counter-concept', saved);
     _syncAvoidChips();
     _updateAvoidHints();
-    // Auto-expand both sections if there's saved content
+    // Sections default open; if saved content exists ensure they stay open
     if (saved.trim()) {
       var panels = ['remix', 'concept'];
       panels.forEach(function(p) {
+        var section = document.getElementById('avoid-section-' + p);
         var body    = document.getElementById('avoid-body-' + p);
-        var chevron = document.getElementById('avoid-chevron-' + p);
         if (body)    body.classList.remove('hidden');
-        if (chevron) chevron.textContent = '▾';
+        if (section) section.classList.add('open');
       });
     }
   }

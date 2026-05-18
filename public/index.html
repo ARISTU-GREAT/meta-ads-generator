@@ -192,31 +192,31 @@
         </div>
 
         <!-- ── Avoid While Generating ─────────────────────── -->
-        <div class="avoid-section">
+        <div class="avoid-section open" id="avoid-section-remix">
           <button class="avoid-toggle" id="avoid-toggle-remix" type="button"
             onclick="App.toggleAvoidSection('remix')">
             <span class="avoid-toggle-icon">⊘</span>
             <span class="avoid-toggle-label">Avoid While Generating</span>
             <span class="avoid-toggle-hint" id="avoid-hint-remix"></span>
-            <span class="avoid-chevron" id="avoid-chevron-remix">▸</span>
+            <span class="avoid-chevron" id="avoid-chevron-remix">▾</span>
           </button>
-          <div class="avoid-body hidden" id="avoid-body-remix">
+          <div class="avoid-body" id="avoid-body-remix">
             <div class="avoid-chips">
-              <button class="avoid-chip" data-avoid="no humans" onclick="App.toggleAvoidChip('no humans')">No Humans</button>
-              <button class="avoid-chip" data-avoid="no dark background" onclick="App.toggleAvoidChip('no dark background')">No Dark Mode</button>
-              <button class="avoid-chip" data-avoid="no luxury aesthetic" onclick="App.toggleAvoidChip('no luxury aesthetic')">No Luxury</button>
-              <button class="avoid-chip" data-avoid="no gradients" onclick="App.toggleAvoidChip('no gradients')">No Gradients</button>
-              <button class="avoid-chip" data-avoid="no shadows" onclick="App.toggleAvoidChip('no shadows')">No Shadows</button>
-              <button class="avoid-chip" data-avoid="no neon colors" onclick="App.toggleAvoidChip('no neon colors')">No Neon Colors</button>
-              <button class="avoid-chip" data-avoid="no minimal design" onclick="App.toggleAvoidChip('no minimal design')">No Minimal</button>
-              <button class="avoid-chip" data-avoid="no medical claims" onclick="App.toggleAvoidChip('no medical claims')">No Medical Claims</button>
-              <button class="avoid-chip" data-avoid="no before and after" onclick="App.toggleAvoidChip('no before and after')">No Before/After</button>
-              <button class="avoid-chip" data-avoid="no cta button" onclick="App.toggleAvoidChip('no cta button')">No CTA Button</button>
+              <button class="avoid-chip" type="button" data-avoid="no humans" onclick="App.toggleAvoidChip('no humans')">No Humans</button>
+              <button class="avoid-chip" type="button" data-avoid="no dark background" onclick="App.toggleAvoidChip('no dark background')">No Dark Mode</button>
+              <button class="avoid-chip" type="button" data-avoid="no luxury aesthetic" onclick="App.toggleAvoidChip('no luxury aesthetic')">No Luxury</button>
+              <button class="avoid-chip" type="button" data-avoid="no gradients" onclick="App.toggleAvoidChip('no gradients')">No Gradients</button>
+              <button class="avoid-chip" type="button" data-avoid="no shadows" onclick="App.toggleAvoidChip('no shadows')">No Shadows</button>
+              <button class="avoid-chip" type="button" data-avoid="no neon colors" onclick="App.toggleAvoidChip('no neon colors')">No Neon Colors</button>
+              <button class="avoid-chip" type="button" data-avoid="no minimal design" onclick="App.toggleAvoidChip('no minimal design')">No Minimal</button>
+              <button class="avoid-chip" type="button" data-avoid="no medical claims" onclick="App.toggleAvoidChip('no medical claims')">No Medical Claims</button>
+              <button class="avoid-chip" type="button" data-avoid="no before and after" onclick="App.toggleAvoidChip('no before and after')">No Before/After</button>
+              <button class="avoid-chip" type="button" data-avoid="no cta button" onclick="App.toggleAvoidChip('no cta button')">No CTA Button</button>
             </div>
             <div class="avoid-input-wrap">
-              <textarea class="field-textarea avoid-textarea" id="remix-avoid" rows="2" maxlength="300"
+              <textarea class="avoid-textarea" id="remix-avoid" maxlength="300"
                 placeholder="avoid green colors, no crowded layout, no handwritten fonts…"
-                oninput="App.onAvoidInput(this, 'avoid-counter-remix')"></textarea>
+                oninput="App.onAvoidInput(this)"></textarea>
               <span class="avoid-counter" id="avoid-counter-remix">0 / 300</span>
             </div>
           </div>
@@ -332,31 +332,31 @@
         </div>
 
         <!-- ── Avoid While Generating ─────────────────────── -->
-        <div class="avoid-section">
+        <div class="avoid-section open" id="avoid-section-concept">
           <button class="avoid-toggle" id="avoid-toggle-concept" type="button"
             onclick="App.toggleAvoidSection('concept')">
             <span class="avoid-toggle-icon">⊘</span>
             <span class="avoid-toggle-label">Avoid While Generating</span>
             <span class="avoid-toggle-hint" id="avoid-hint-concept"></span>
-            <span class="avoid-chevron" id="avoid-chevron-concept">▸</span>
+            <span class="avoid-chevron" id="avoid-chevron-concept">▾</span>
           </button>
-          <div class="avoid-body hidden" id="avoid-body-concept">
+          <div class="avoid-body" id="avoid-body-concept">
             <div class="avoid-chips">
-              <button class="avoid-chip" data-avoid="no humans" onclick="App.toggleAvoidChip('no humans')">No Humans</button>
-              <button class="avoid-chip" data-avoid="no dark background" onclick="App.toggleAvoidChip('no dark background')">No Dark Mode</button>
-              <button class="avoid-chip" data-avoid="no luxury aesthetic" onclick="App.toggleAvoidChip('no luxury aesthetic')">No Luxury</button>
-              <button class="avoid-chip" data-avoid="no gradients" onclick="App.toggleAvoidChip('no gradients')">No Gradients</button>
-              <button class="avoid-chip" data-avoid="no shadows" onclick="App.toggleAvoidChip('no shadows')">No Shadows</button>
-              <button class="avoid-chip" data-avoid="no neon colors" onclick="App.toggleAvoidChip('no neon colors')">No Neon Colors</button>
-              <button class="avoid-chip" data-avoid="no minimal design" onclick="App.toggleAvoidChip('no minimal design')">No Minimal</button>
-              <button class="avoid-chip" data-avoid="no medical claims" onclick="App.toggleAvoidChip('no medical claims')">No Medical Claims</button>
-              <button class="avoid-chip" data-avoid="no before and after" onclick="App.toggleAvoidChip('no before and after')">No Before/After</button>
-              <button class="avoid-chip" data-avoid="no cta button" onclick="App.toggleAvoidChip('no cta button')">No CTA Button</button>
+              <button class="avoid-chip" type="button" data-avoid="no humans" onclick="App.toggleAvoidChip('no humans')">No Humans</button>
+              <button class="avoid-chip" type="button" data-avoid="no dark background" onclick="App.toggleAvoidChip('no dark background')">No Dark Mode</button>
+              <button class="avoid-chip" type="button" data-avoid="no luxury aesthetic" onclick="App.toggleAvoidChip('no luxury aesthetic')">No Luxury</button>
+              <button class="avoid-chip" type="button" data-avoid="no gradients" onclick="App.toggleAvoidChip('no gradients')">No Gradients</button>
+              <button class="avoid-chip" type="button" data-avoid="no shadows" onclick="App.toggleAvoidChip('no shadows')">No Shadows</button>
+              <button class="avoid-chip" type="button" data-avoid="no neon colors" onclick="App.toggleAvoidChip('no neon colors')">No Neon Colors</button>
+              <button class="avoid-chip" type="button" data-avoid="no minimal design" onclick="App.toggleAvoidChip('no minimal design')">No Minimal</button>
+              <button class="avoid-chip" type="button" data-avoid="no medical claims" onclick="App.toggleAvoidChip('no medical claims')">No Medical Claims</button>
+              <button class="avoid-chip" type="button" data-avoid="no before and after" onclick="App.toggleAvoidChip('no before and after')">No Before/After</button>
+              <button class="avoid-chip" type="button" data-avoid="no cta button" onclick="App.toggleAvoidChip('no cta button')">No CTA Button</button>
             </div>
             <div class="avoid-input-wrap">
-              <textarea class="field-textarea avoid-textarea" id="concept-avoid" rows="2" maxlength="300"
+              <textarea class="avoid-textarea" id="concept-avoid" maxlength="300"
                 placeholder="avoid green colors, no crowded layout, no handwritten fonts…"
-                oninput="App.onAvoidInput(this, 'avoid-counter-concept')"></textarea>
+                oninput="App.onAvoidInput(this)"></textarea>
               <span class="avoid-counter" id="avoid-counter-concept">0 / 300</span>
             </div>
           </div>
