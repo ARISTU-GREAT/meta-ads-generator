@@ -21,33 +21,38 @@ async function logEvent(req, { event_type, entity_type, entity_id, brand_id, cam
 }
 
 async function getAuditEvents({ event_type, user_email, brand_id, campaign_id, from, to, search, limit = 100, offset = 0 } = {}) {
-  const conditions = [];
-  const params = [];
-  let p = 1;
+  try {
+    const conditions = [];
+    const params = [];
+    let p = 1;
 
-  if (event_type)  { conditions.push(`event_type = $${p++}`);     params.push(event_type); }
-  if (user_email)  { conditions.push(`user_email ILIKE $${p++}`); params.push('%' + user_email + '%'); }
-  if (brand_id)    { conditions.push(`brand_id = $${p++}`);       params.push(brand_id); }
-  if (campaign_id) { conditions.push(`campaign_id = $${p++}`);    params.push(campaign_id); }
-  if (from)        { conditions.push(`created_at >= $${p++}`);    params.push(from); }
-  if (to)          { conditions.push(`created_at <= $${p++}`);    params.push(to); }
-  if (search) {
-    const term = '%' + search + '%';
-    conditions.push(`(message ILIKE $${p} OR event_type ILIKE $${p} OR user_email ILIKE $${p})`);
-    params.push(term);
-    p++;
+    if (event_type)  { conditions.push(`event_type = $${p++}`);     params.push(event_type); }
+    if (user_email)  { conditions.push(`user_email ILIKE $${p++}`); params.push('%' + user_email + '%'); }
+    if (brand_id)    { conditions.push(`brand_id = $${p++}`);       params.push(brand_id); }
+    if (campaign_id) { conditions.push(`campaign_id = $${p++}`);    params.push(campaign_id); }
+    if (from)        { conditions.push(`created_at >= $${p++}`);    params.push(from); }
+    if (to)          { conditions.push(`created_at <= $${p++}`);    params.push(to); }
+    if (search) {
+      const term = '%' + search + '%';
+      conditions.push(`(message ILIKE $${p} OR event_type ILIKE $${p} OR user_email ILIKE $${p})`);
+      params.push(term);
+      p++;
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const { rows } = await query(
+      `SELECT * FROM audit_events ${where} ORDER BY created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
+      [...params, limit, offset]
+    );
+    const { rows: countRows } = await query(
+      `SELECT COUNT(*) FROM audit_events ${where}`,
+      params
+    );
+    return { events: rows, total: parseInt(countRows[0].count, 10) };
+  } catch (err) {
+    console.warn('[auditService] getAuditEvents failed (table may not exist yet):', err.message);
+    return { events: [], total: 0 };
   }
-
-  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-  const { rows } = await query(
-    `SELECT * FROM audit_events ${where} ORDER BY created_at DESC LIMIT $${p} OFFSET $${p + 1}`,
-    [...params, limit, offset]
-  );
-  const { rows: countRows } = await query(
-    `SELECT COUNT(*) FROM audit_events ${where}`,
-    params
-  );
-  return { events: rows, total: parseInt(countRows[0].count, 10) };
 }
 
 module.exports = { logEvent, getAuditEvents };

@@ -61,12 +61,10 @@ const Auth = (() => {
         return;
       }
 
+      // Tabs are always visible; default mode depends on whether any account exists.
       if (!status.hasAdmin) {
-        // No admin yet — show tabs and default to signup
-        document.getElementById('login-tabs')?.classList.remove('hidden');
         showLoginScreen('signup');
       } else {
-        // Admin exists — login only, no signup tab exposed
         showLoginScreen('login');
       }
     } catch {

@@ -19,18 +19,12 @@ async function getRegisteredAdmins() {
   return rows;
 }
 
-// hasAdmin:
-//   When ADMIN_EMAILS is configured → true only when ALL listed emails have registered
-//     (keeps signup tab visible for any unregistered admin)
-//   When ADMIN_EMAILS is empty (no config) → true when any admin row exists in DB
-//     (preserves original single-admin behaviour for unconfigured deploys)
+// hasAdmin: true when any user account exists in the DB.
+// This drives the frontend default: Create Account when empty, Sign In otherwise.
+// Signup eligibility is enforced separately by the signup endpoint (ADMIN_EMAILS allowlist).
 async function hasAdmin() {
-  const registered = await getRegisteredAdmins();
-  if (ADMIN_EMAILS.length === 0) {
-    return registered.length > 0;
-  }
-  const registeredEmails = registered.map(r => r.email.toLowerCase());
-  return ADMIN_EMAILS.every(e => registeredEmails.includes(e));
+  const { rows } = await query('SELECT COUNT(*) FROM users');
+  return parseInt(rows[0].count, 10) > 0;
 }
 
 function sessionFor(req, user) {

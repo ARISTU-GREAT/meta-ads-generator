@@ -363,7 +363,11 @@ function skeleton() {
 // ── API helper ─────────────────────────────────────────────────
 async function api(path) {
   const res = await fetch('/api/admin' + path, { credentials: 'include' });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status;
+    try { const d = await res.json(); if (d && d.error) msg = d.error; } catch {}
+    throw new Error(msg);
+  }
   return res.json();
 }
 
@@ -454,8 +458,7 @@ async function loadOverview() {
         '</div>' +
       '</div>';
   } catch (err) {
-    document.getElementById('admin-main').innerHTML =
-      '<div class="empty-state"><div class="empty-icon">⚠️</div>' + esc(err.message) + '</div>';
+    errorState(err);
   }
 }
 
@@ -806,11 +809,13 @@ function filterByAttr(tbodyId, attr, val) {
 }
 
 function errorState(err) {
+  const section = currentSection;
   document.getElementById('admin-main').innerHTML =
     '<div class="empty-state">' +
       '<div class="empty-icon">⚠️</div>' +
-      '<div style="font-weight:600;margin-bottom:6px">Failed to load</div>' +
-      '<div>' + esc(err.message) + '</div>' +
+      '<div style="font-weight:600;color:var(--danger);margin-bottom:6px">Failed to load</div>' +
+      '<div style="font-size:0.78rem;color:var(--text-3);margin-bottom:14px;max-width:360px">' + esc(err.message) + '</div>' +
+      '<button class="refresh-btn" style="margin:0 auto" onclick="navigate(\'' + section + '\')">↺ Retry</button>' +
     '</div>';
 }
 
