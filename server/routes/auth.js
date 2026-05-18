@@ -3,14 +3,33 @@ const bcrypt  = require('bcryptjs');
 const router  = express.Router();
 const { query } = require('../db');
 const { asyncHandler, AppError } = require('../utils/errors');
+const { ADMIN_EMAILS, isAdminEmail } = require('../middleware/auth');
 
 const BCRYPT_ROUNDS = 12;
 
 // ── Helpers ───────────────────────────────────────────────────
 
-async function getAdmin() {
-  const { rows } = await query('SELECT * FROM users WHERE role = $1 LIMIT 1', ['admin']);
-  return rows[0] || null;
+// Returns all registered admin rows
+async function getRegisteredAdmins() {
+  const { rows } = await query(
+    'SELECT id, email, role, created_at FROM users WHERE role = $1',
+    ['admin']
+  );
+  return rows;
+}
+
+// hasAdmin:
+//   When ADMIN_EMAILS is configured → true only when ALL listed emails have registered
+//     (keeps signup tab visible for any unregistered admin)
+//   When ADMIN_EMAILS is empty (no config) → true when any admin row exists in DB
+//     (preserves original single-admin behaviour for unconfigured deploys)
+async function hasAdmin() {
+  const registered = await getRegisteredAdmins();
+  if (ADMIN_EMAILS.length === 0) {
+    return registered.length > 0;
+  }
+  const registeredEmails = registered.map(r => r.email.toLowerCase());
+  return ADMIN_EMAILS.every(e => registeredEmails.includes(e));
 }
 
 function sessionFor(req, user) {
@@ -20,28 +39,46 @@ function sessionFor(req, user) {
 }
 
 // ── GET /api/auth/status ─────────────────────────────────────
-// Returns whether the admin account exists so the frontend knows
-// which form to show on first load.
+// Returns whether ALL admin accounts exist so the frontend knows
+// which form to show. Signup tab stays visible until every
+// ADMIN_EMAILS address has registered.
 router.get('/status', asyncHandler(async (_req, res) => {
-  const admin = await getAdmin();
-  res.json({ hasAdmin: !!admin });
+  res.json({ hasAdmin: await hasAdmin() });
 }));
 
 // ── POST /api/auth/signup ────────────────────────────────────
-// Only allowed when no admin exists yet (enforced server-side).
+// Allowed only when:
+//   (a) ADMIN_EMAILS is configured → email must be in the list AND not yet registered
+//   (b) ADMIN_EMAILS is empty      → no admin exists yet (original behaviour)
 router.post('/signup', asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) throw new AppError('Email and password are required', 400);
   if (password.length < 8)  throw new AppError('Password must be at least 8 characters', 400);
 
-  const existing = await getAdmin();
-  if (existing) throw new AppError('Admin account already exists.', 409);
+  const normalizedEmail = email.toLowerCase().trim();
+
+  if (ADMIN_EMAILS.length > 0) {
+    // Strict allowlist: only emails in ADMIN_EMAILS may register
+    if (!isAdminEmail(normalizedEmail)) {
+      throw new AppError('This email is not authorised to create an admin account.', 403);
+    }
+    // Check this specific email hasn't already registered
+    const { rows: existing } = await query(
+      'SELECT id FROM users WHERE email = $1',
+      [normalizedEmail]
+    );
+    if (existing.length) throw new AppError('An account already exists for this email.', 409);
+  } else {
+    // No allowlist configured — fall back to original single-admin gate
+    const admins = await getRegisteredAdmins();
+    if (admins.length) throw new AppError('Admin account already exists.', 409);
+  }
 
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   const { rows } = await query(
     `INSERT INTO users (email, password_hash, role)
      VALUES ($1, $2, 'admin') RETURNING id, email, role, created_at`,
-    [email.toLowerCase().trim(), hash]
+    [normalizedEmail, hash]
   );
   const user = rows[0];
 
@@ -100,7 +137,10 @@ router.get('/me', asyncHandler(async (req, res) => {
     req.session.destroy(() => {});
     return res.json({ authenticated: false });
   }
-  res.json({ authenticated: true, email: rows[0].email, role: rows[0].role });
+  const user = rows[0];
+  // isAdmin flag: DB role OR email in ADMIN_EMAILS list
+  const isAdmin = user.role === 'admin' || isAdminEmail(user.email);
+  res.json({ authenticated: true, email: user.email, role: user.role, isAdmin });
 }));
 
 module.exports = router;
