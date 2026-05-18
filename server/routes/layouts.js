@@ -77,10 +77,11 @@ router.get('/export', asyncHandler(async (req, res) => {
       const aspectRatio = (strategy && strategy.aspect_ratio) || meta.aspect_ratio || 'square';
 
       // Concept context from metadata (optional)
-      const conceptContext = (meta.instructions || '') || '';
+      const conceptContext    = (meta.instructions || '') || '';
+      const avoidInstructions = meta.avoid_instructions || '';
 
       console.log(`[layouts/export] generating Claude blueprint for ad=${adId}`);
-      layoutJson = await generateBlueprint({ brand, strategy, aspectRatio, conceptContext });
+      layoutJson = await generateBlueprint({ brand, strategy, aspectRatio, conceptContext, avoidInstructions });
       await saveBlueprintLayout(adId, layoutJson);
     }
 

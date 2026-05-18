@@ -106,7 +106,7 @@ router.post(
     };
 
     const { brand_id, instructions, aspect_ratio, count, campaign_id, speed_mode,
-            reference_asset_id, product_asset_id } = req.body;
+            reference_asset_id, product_asset_id, avoid_instructions } = req.body;
     const n = parseInt(count, 10) || 5;
 
     console.log('[generate/stream] incoming request:', {
@@ -177,6 +177,7 @@ router.post(
         referenceImageMime: refResolved.mime,
         productImageMime:   prodResolved.mime,
         instructions:       instructions || '',
+        avoidInstructions:  avoid_instructions || '',
         aspectRatio:        aspect_ratio || 'square',
         count:              n,
         campaignId:         campaign_id  || null,

@@ -10,6 +10,7 @@
  */
 
 const fs = require('fs');
+const { buildNegativeRulesBlock } = require('../utils/promptUtils');
 
 const PROMPT_MODEL = () => process.env.OPENAI_PROMPT_MODEL || 'gpt-4.1-mini';
 
@@ -53,6 +54,7 @@ async function composeCreativeStrategy({
   productImagePath,
   productImageMime,
   instructions,
+  avoidInstructions = '',
   aspectRatio,
   promptStyle = 'balanced',
   memoryContext = null,   // optional: formatted string from brandMemoryService
@@ -88,6 +90,7 @@ ${memorySection}
 ─── USER BRIEF ──────────────────────────────────────────────
 Instructions: ${userInstructions}
 Aspect ratio: ${aspectRatio}
+${buildNegativeRulesBlock(avoidInstructions)}
 
 ─── YOUR TASK ───────────────────────────────────────────────
 Analyze both images carefully. Return a SINGLE valid JSON object — no markdown, no extra text.

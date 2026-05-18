@@ -224,6 +224,7 @@ const App = (() => {
     },
     genMode: 'image',  // 'image' | 'editable'
     memoryFilter: '',
+    avoidInstructions: '',  // shared across remix + concepts, persisted to localStorage
   };
 
   // ── Constants ────────────────────────────────────────────────
@@ -894,6 +895,117 @@ const App = (() => {
     state.generation.active = false;
   }
 
+  // ── Avoid While Generating ───────────────────────────────────
+
+  const AVOID_LS_KEY = 'adflow_avoid_instructions';
+  const AVOID_MAX    = 300;
+
+  function toggleAvoidSection(panel) {
+    var body    = document.getElementById('avoid-body-' + panel);
+    var chevron = document.getElementById('avoid-chevron-' + panel);
+    if (!body) return;
+    var isOpen = !body.classList.contains('hidden');
+    body.classList.toggle('hidden', isOpen);
+    if (chevron) chevron.textContent = isOpen ? '▸' : '▾';
+  }
+
+  function onAvoidInput(textarea) {
+    var val = textarea.value.substring(0, AVOID_MAX);
+    textarea.value = val;
+    state.avoidInstructions = val;
+    // Sync the other panel's textarea
+    var otherId = textarea.id === 'remix-avoid' ? 'concept-avoid' : 'remix-avoid';
+    var other   = document.getElementById(otherId);
+    if (other) other.value = val;
+    // Update both counters
+    _updateAvoidCounter('avoid-counter-remix',   val);
+    _updateAvoidCounter('avoid-counter-concept', val);
+    _syncAvoidChips();
+    _updateAvoidHints();
+    try { localStorage.setItem(AVOID_LS_KEY, val); } catch (_) {}
+  }
+
+  function toggleAvoidChip(value) {
+    var current = state.avoidInstructions || '';
+    var items   = current.length
+      ? current.split(/[,\n]+/).map(function(s) { return s.trim(); }).filter(Boolean)
+      : [];
+    var lv  = value.toLowerCase();
+    var idx = -1;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].toLowerCase() === lv) { idx = i; break; }
+    }
+    if (idx >= 0) {
+      items.splice(idx, 1);
+    } else {
+      items.push(value);
+    }
+    var newVal = items.join(', ');
+    if (newVal.length > AVOID_MAX) newVal = newVal.substring(0, AVOID_MAX);
+    state.avoidInstructions = newVal;
+    var ta1 = document.getElementById('remix-avoid');
+    var ta2 = document.getElementById('concept-avoid');
+    if (ta1) ta1.value = newVal;
+    if (ta2) ta2.value = newVal;
+    _updateAvoidCounter('avoid-counter-remix',   newVal);
+    _updateAvoidCounter('avoid-counter-concept', newVal);
+    _syncAvoidChips();
+    _updateAvoidHints();
+    try { localStorage.setItem(AVOID_LS_KEY, newVal); } catch (_) {}
+  }
+
+  function _updateAvoidCounter(counterId, val) {
+    var el = document.getElementById(counterId);
+    if (el) el.textContent = (val || '').length + ' / ' + AVOID_MAX;
+  }
+
+  function _updateAvoidHints() {
+    var items = state.avoidInstructions
+      ? state.avoidInstructions.split(/[,\n]+/).map(function(s) { return s.trim(); }).filter(Boolean)
+      : [];
+    var hint  = items.length ? '(' + items.length + ' rule' + (items.length !== 1 ? 's' : '') + ')' : '';
+    var h1 = document.getElementById('avoid-hint-remix');
+    var h2 = document.getElementById('avoid-hint-concept');
+    if (h1) h1.textContent = hint;
+    if (h2) h2.textContent = hint;
+  }
+
+  function _syncAvoidChips() {
+    var parts = (state.avoidInstructions || '').split(/[,\n]+/)
+      .map(function(s) { return s.trim().toLowerCase(); })
+      .filter(Boolean);
+    document.querySelectorAll('.avoid-chip').forEach(function(chip) {
+      var val = (chip.dataset.avoid || '').toLowerCase();
+      chip.classList.toggle('active', val.length > 0 && parts.indexOf(val) >= 0);
+    });
+  }
+
+  function _restoreAvoidFromStorage() {
+    var saved = '';
+    try { saved = localStorage.getItem(AVOID_LS_KEY) || ''; } catch (_) {}
+    if (!saved) return;
+    saved = saved.substring(0, AVOID_MAX);
+    state.avoidInstructions = saved;
+    var ta1 = document.getElementById('remix-avoid');
+    var ta2 = document.getElementById('concept-avoid');
+    if (ta1) ta1.value = saved;
+    if (ta2) ta2.value = saved;
+    _updateAvoidCounter('avoid-counter-remix',   saved);
+    _updateAvoidCounter('avoid-counter-concept', saved);
+    _syncAvoidChips();
+    _updateAvoidHints();
+    // Auto-expand both sections if there's saved content
+    if (saved.trim()) {
+      var panels = ['remix', 'concept'];
+      panels.forEach(function(p) {
+        var body    = document.getElementById('avoid-body-' + p);
+        var chevron = document.getElementById('avoid-chevron-' + p);
+        if (body)    body.classList.remove('hidden');
+        if (chevron) chevron.textContent = '▾';
+      });
+    }
+  }
+
   // Masonry skeleton heights — vary to look natural before images load
   const SKELETON_HEIGHTS = [200, 270, 230, 310, 245, 185, 290, 215, 260, 195];
 
@@ -1376,12 +1488,13 @@ const App = (() => {
     }
 
     const payload = {
-      brand_id:         state.activeBrand.id,
-      campaign_id:      state.activeCampaign.id,
-      aspect_ratio:     state.concepts.aspectRatio || state.remix.aspectRatio || 'square',
+      brand_id:           state.activeBrand.id,
+      campaign_id:        state.activeCampaign.id,
+      aspect_ratio:       state.concepts.aspectRatio || state.remix.aspectRatio || 'square',
       instructions,
-      strategy:         strategyObj,
-      product_asset_id: state.concepts.productAssetId || state.remix.productAssetId || null,
+      avoid_instructions: state.avoidInstructions || '',
+      strategy:           strategyObj,
+      product_asset_id:   state.concepts.productAssetId || state.remix.productAssetId || null,
     };
 
     try {
@@ -1544,7 +1657,8 @@ const App = (() => {
       formData.append('product_image',      state.remix.productFile);
     else
       formData.append('product_asset_id',   state.remix.productAssetId);
-    formData.append('instructions', getVal('remix-instructions'));
+    formData.append('instructions',       getVal('remix-instructions'));
+    formData.append('avoid_instructions', state.avoidInstructions || '');
     formData.append('aspect_ratio', state.remix.aspectRatio);
     formData.append('count',        n);
     formData.append('speed_mode',   state.speedMode);
@@ -1774,7 +1888,8 @@ const App = (() => {
         const formData = new FormData();
         formData.append('brand_id',    state.activeBrand.id);
         formData.append('campaign_id', state.activeCampaign.id);
-        formData.append('instructions',  instructions);
+        formData.append('instructions',       instructions);
+        formData.append('avoid_instructions', state.avoidInstructions || '');
         formData.append('aspect_ratio',  document.getElementById('concept-ratio')?.value || 'square');
         formData.append('count',         n);
         formData.append('speed_mode',    state.speedMode);
@@ -2703,6 +2818,7 @@ const App = (() => {
     _syncConceptPlanPanel();
     initRemixDropZones();
     initBrandAssetUpload();
+    _restoreAvoidFromStorage();   // restore persisted avoid rules before first render
     _loadAiCapabilities(); // non-blocking — greys out unavailable providers after fetch
     await Promise.all([loadBrands(), loadFormats()]);
   }
@@ -2758,6 +2874,9 @@ const App = (() => {
 
     // Panel
     switchTab, selectRatio, adjustVolume, onVolumeInput, onConceptCountInput, toggleFormat, selectSpeedMode,
+
+    // Avoid While Generating
+    toggleAvoidSection, onAvoidInput, toggleAvoidChip,
 
     // Remix
     triggerRemixGenerate,

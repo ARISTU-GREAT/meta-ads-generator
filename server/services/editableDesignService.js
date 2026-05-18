@@ -13,6 +13,7 @@
 
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI    = require('openai');
+const { buildNegativeRulesBlock } = require('../utils/promptUtils');
 
 const CANVAS_SIZES = {
   square:    { width: 1080, height: 1080 },
@@ -79,7 +80,7 @@ function _buildStrategyContext(strategy) {
   return lines.filter(Boolean).join('\n') || null;
 }
 
-function _buildUserPrompt({ brand, W, H, aspectRatio, strategy, instructions, persona, productImageUrl, logoUrl }) {
+function _buildUserPrompt({ brand, W, H, aspectRatio, strategy, instructions, avoidInstructions, persona, productImageUrl, logoUrl }) {
   const brandCtx    = _buildBrandContext(brand);
   const strategyCtx = _buildStrategyContext(strategy);
   const cta         = brand.offer_cta     || 'Shop Now';
@@ -101,6 +102,7 @@ ${brandCtx}
 ${strategyCtx ? `\nCONCEPT STRATEGY\n${strategyCtx}` : ''}
 ${persona ? `\nPERSONA\n${persona.name ? 'Name: ' + persona.name : ''}\n${persona.description || ''}` : ''}
 ${instructions ? `\nINSTRUCTIONS\n${instructions}` : ''}
+${buildNegativeRulesBlock(avoidInstructions)}
 
 ASSETS
 Product image URL: ${productImageUrl || 'none — use a placeholder rectangle'}
@@ -329,14 +331,14 @@ function _parseRaw(raw) {
  * @param {string} opts.logoUrl         - public URL of logo (or null)
  * @returns {object} adflow-editable-design JSON
  */
-async function generateEditableDesign({ brand, aspectRatio, strategy, instructions, persona, productImageUrl, logoUrl }) {
+async function generateEditableDesign({ brand, aspectRatio, strategy, instructions, avoidInstructions = '', persona, productImageUrl, logoUrl }) {
   const canvas = CANVAS_SIZES[aspectRatio] || CANVAS_SIZES.square;
   const { width: W, height: H } = canvas;
 
   const useProvider = process.env.ANTHROPIC_API_KEY ? 'claude' : 'openai';
   console.log(`[editableDesign] brand=${brand.name} canvas=${W}x${H} provider=${useProvider}`);
 
-  const userPrompt = _buildUserPrompt({ brand, W, H, aspectRatio, strategy, instructions, persona, productImageUrl, logoUrl });
+  const userPrompt = _buildUserPrompt({ brand, W, H, aspectRatio, strategy, instructions, avoidInstructions, persona, productImageUrl, logoUrl });
 
   let raw;
   try {

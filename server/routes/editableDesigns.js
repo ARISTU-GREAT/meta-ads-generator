@@ -31,9 +31,10 @@ router.post('/generate', asyncHandler(async (req, res) => {
     brand_id,
     campaign_id,
     concept_id,
-    aspect_ratio     = 'square',
-    strategy,        // object from concept plan
-    instructions     = '',
+    aspect_ratio       = 'square',
+    strategy,          // object from concept plan
+    instructions       = '',
+    avoid_instructions = '',
     persona_id,
     product_asset_id,
     logo_asset_id,
@@ -79,9 +80,10 @@ router.post('/generate', asyncHandler(async (req, res) => {
   try {
     layoutJson = await generateEditableDesign({
       brand,
-      aspectRatio: aspect_ratio,
-      strategy:    typeof strategy === 'string' ? JSON.parse(strategy) : (strategy || null),
+      aspectRatio:       aspect_ratio,
+      strategy:          typeof strategy === 'string' ? JSON.parse(strategy) : (strategy || null),
       instructions,
+      avoidInstructions: avoid_instructions,
       persona,
       productImageUrl,
       logoUrl,
@@ -93,12 +95,13 @@ router.post('/generate', asyncHandler(async (req, res) => {
 
   // Create the generated_ads record (no image — layout is the source of truth)
   const metadataPayload = {
-    source_mode:   'layout_first',
+    source_mode:        'layout_first',
     aspect_ratio,
-    instructions:  instructions || null,
-    strategy:      strategy || null,
-    preview_color: layoutJson.canvas.background || '#1a1a2e',
-    concept_id:    concept_id || null,
+    instructions:       instructions || null,
+    avoid_instructions: avoid_instructions || null,
+    strategy:           strategy || null,
+    preview_color:      layoutJson.canvas.background || '#1a1a2e',
+    concept_id:         concept_id || null,
   };
 
   const { rows: adRows } = await query(

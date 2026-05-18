@@ -14,6 +14,7 @@
  */
 
 const Anthropic = require('@anthropic-ai/sdk');
+const { buildNegativeRulesBlock } = require('../utils/promptUtils');
 
 const CANVAS_SIZES = {
   square:   { width: 1080, height: 1080 },
@@ -91,7 +92,7 @@ function _buildLayerSchema(W, H) {
 }`;
 }
 
-function _buildUserPrompt(brand, strategy, W, H, aspectRatio, conceptContext) {
+function _buildUserPrompt(brand, strategy, W, H, aspectRatio, conceptContext, avoidInstructions) {
   const brandCtx    = _buildBrandContext(brand);
   const strategyCtx = _buildStrategyContext(strategy);
   const cta         = brand.offer_cta || 'Shop Now';
@@ -105,6 +106,7 @@ BRAND
 ${brandCtx}
 ${strategyCtx ? `\nCREATIVE STRATEGY\n${strategyCtx}` : ''}
 ${conceptContext ? `\nCONCEPT / ANGLE\n${conceptContext}` : ''}
+${buildNegativeRulesBlock(avoidInstructions)}
 
 Return ONLY this JSON (no markdown, no explanation):
 {
@@ -193,7 +195,7 @@ function _normalizeLayer(raw, W, H, fallbackZ) {
 
 const BLUEPRINT_TIMEOUT_MS = 45_000;
 
-async function generateBlueprint({ brand, strategy, aspectRatio, conceptContext }) {
+async function generateBlueprint({ brand, strategy, aspectRatio, conceptContext, avoidInstructions = '' }) {
   const client = getClient();
   const canvas = CANVAS_SIZES[aspectRatio] || CANVAS_SIZES.square;
   const { width: W, height: H } = canvas;
@@ -205,7 +207,7 @@ async function generateBlueprint({ brand, strategy, aspectRatio, conceptContext 
     'You produce precise, production-ready design blueprints as strict JSON. ' +
     'Return ONLY valid JSON — no markdown fences, no prose, no explanation.';
 
-  const userPrompt = _buildUserPrompt(brand, strategy, W, H, aspectRatio, conceptContext);
+  const userPrompt = _buildUserPrompt(brand, strategy, W, H, aspectRatio, conceptContext, avoidInstructions);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BLUEPRINT_TIMEOUT_MS);

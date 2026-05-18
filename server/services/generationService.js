@@ -25,6 +25,7 @@ const { composeCreativeStrategy } = require('./promptComposerService');
 const { getRelevantMemoriesForBrand, formatMemoryContext } = require('./brandMemoryService');
 const { buildLayoutFromStrategy, saveLayout } = require('./layoutService');
 const { scoreGeneration, selectBest } = require('./validationService');
+const { buildNegativeRulesBlock }     = require('../utils/promptUtils');
 
 // Lazy-init — safe to load without OPENAI_API_KEY at startup
 let _openai = null;
@@ -508,6 +509,7 @@ async function remixGenerateBatchStream({
   referenceImageMime,
   productImageMime,
   instructions,
+  avoidInstructions = '',
   aspectRatio,
   count,
   campaignId,
@@ -543,7 +545,7 @@ async function remixGenerateBatchStream({
       openai, brand,
       referenceImagePath, referenceImageMime,
       productImagePath,   productImageMime,
-      instructions, aspectRatio,
+      instructions, avoidInstructions, aspectRatio,
       promptStyle: speedCfg.promptStyle,
     });
     basePrompt   = strategy.enhanced_prompt;
@@ -574,7 +576,8 @@ async function remixGenerateBatchStream({
     const variationSuffix = n > 1
       ? `\n\n${VARIATION_DIRECTIVES[slot % VARIATION_DIRECTIVES.length]}`
       : '';
-    const prompt = imageContextHeader + basePrompt + variationSuffix + PRODUCT_FIDELITY_SUFFIX;
+    const prompt = imageContextHeader + basePrompt + variationSuffix
+      + buildNegativeRulesBlock(avoidInstructions) + PRODUCT_FIDELITY_SUFFIX;
 
     const [refFile, prodFile] = await Promise.all([
       toFile(fs.createReadStream(referenceImagePath), 'reference.png', { type: referenceImageMime || 'image/png' }),
@@ -603,6 +606,7 @@ async function remixGenerateBatchStream({
       mode:               'remix',
       composer_used:      composerUsed,
       instructions:       instructions || null,
+      avoid_instructions: avoidInstructions || null,
       strategy:           strategy || null,
       batch_id:           batchId,
       variation_index:    slot + 1,
