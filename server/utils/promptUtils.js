@@ -2,8 +2,6 @@
  * promptUtils — shared prompt-building helpers used across all AI services.
  */
 
-const MAX_AVOID_CHARS = 400;
-
 /**
  * buildNegativeRulesBlock
  *
@@ -17,9 +15,7 @@ const MAX_AVOID_CHARS = 400;
 function buildNegativeRulesBlock(avoidInstructions) {
   if (!avoidInstructions || !avoidInstructions.trim()) return '';
 
-  const truncated = avoidInstructions.trim().substring(0, MAX_AVOID_CHARS);
-
-  const items = truncated
+  const items = avoidInstructions.trim()
     .split(/[,\n]+/)
     .map(s => s.trim())
     .filter(s => s.length > 0);

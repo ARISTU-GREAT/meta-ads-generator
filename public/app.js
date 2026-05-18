@@ -899,7 +899,6 @@ const App = (() => {
   // ── Avoid While Generating ───────────────────────────────────
 
   const AVOID_LS_KEY = 'adflow_avoid_instructions';
-  const AVOID_MAX    = 300;
 
   function toggleAvoidSection(panel) {
     var section = document.getElementById('avoid-section-' + panel);
@@ -910,15 +909,23 @@ const App = (() => {
     if (section) section.classList.toggle('open', !isOpen);
   }
 
+  function _autoExpandTextarea(ta) {
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+  }
+
   function onAvoidInput(textarea) {
-    var val = textarea.value.substring(0, AVOID_MAX);
-    textarea.value = val;
+    var val = textarea.value;
     state.avoidInstructions = val;
     // Sync the other panel's textarea
     var otherId = textarea.id === 'remix-avoid' ? 'concept-avoid' : 'remix-avoid';
     var other   = document.getElementById(otherId);
-    if (other) other.value = val;
-    // Update both counters
+    if (other && other !== textarea) {
+      other.value = val;
+      _autoExpandTextarea(other);
+    }
+    _autoExpandTextarea(textarea);
     _updateAvoidCounter('avoid-counter-remix',   val);
     _updateAvoidCounter('avoid-counter-concept', val);
     _syncAvoidChips();
@@ -942,12 +949,11 @@ const App = (() => {
       items.push(value);
     }
     var newVal = items.join(', ');
-    if (newVal.length > AVOID_MAX) newVal = newVal.substring(0, AVOID_MAX);
     state.avoidInstructions = newVal;
     var ta1 = document.getElementById('remix-avoid');
     var ta2 = document.getElementById('concept-avoid');
-    if (ta1) ta1.value = newVal;
-    if (ta2) ta2.value = newVal;
+    if (ta1) { ta1.value = newVal; _autoExpandTextarea(ta1); }
+    if (ta2) { ta2.value = newVal; _autoExpandTextarea(ta2); }
     _updateAvoidCounter('avoid-counter-remix',   newVal);
     _updateAvoidCounter('avoid-counter-concept', newVal);
     _syncAvoidChips();
@@ -956,8 +962,9 @@ const App = (() => {
   }
 
   function _updateAvoidCounter(counterId, val) {
-    var el = document.getElementById(counterId);
-    if (el) el.textContent = (val || '').length + ' / ' + AVOID_MAX;
+    var el  = document.getElementById(counterId);
+    var len = (val || '').length;
+    if (el) el.textContent = len > 0 ? len + ' chars' : '0 chars';
   }
 
   function _updateAvoidHints() {
@@ -985,12 +992,11 @@ const App = (() => {
     var saved = '';
     try { saved = localStorage.getItem(AVOID_LS_KEY) || ''; } catch (_) {}
     if (!saved) return;
-    saved = saved.substring(0, AVOID_MAX);
     state.avoidInstructions = saved;
     var ta1 = document.getElementById('remix-avoid');
     var ta2 = document.getElementById('concept-avoid');
-    if (ta1) ta1.value = saved;
-    if (ta2) ta2.value = saved;
+    if (ta1) { ta1.value = saved; _autoExpandTextarea(ta1); }
+    if (ta2) { ta2.value = saved; _autoExpandTextarea(ta2); }
     _updateAvoidCounter('avoid-counter-remix',   saved);
     _updateAvoidCounter('avoid-counter-concept', saved);
     _syncAvoidChips();

@@ -671,17 +671,17 @@ body {
   color: #fff;
   border-color: var(--accent);
 }
-/* Input wrap: relative only for the counter overlay */
-.avoid-input-wrap { position: relative; }
+.avoid-input-wrap { display: flex; flex-direction: column; gap: 3px; }
 .avoid-textarea {
   display: block;
   box-sizing: border-box;
   width: 100%;
   min-height: 120px;
-  height: 120px;
-  resize: vertical;
+  height: auto;
+  resize: none;
+  overflow: hidden;
   font-size: 0.72rem;
-  padding: 7px 8px 22px;
+  padding: 7px 8px 7px;
   border: 1px solid var(--border-md);
   border-radius: var(--r-sm);
   color: var(--text);
@@ -698,15 +698,12 @@ body {
   background: var(--surface);
 }
 .avoid-counter {
-  position: absolute;
-  bottom: 5px;
-  right: 7px;
   font-size: 0.6rem;
   color: var(--text-3);
+  text-align: right;
   pointer-events: none;
+  line-height: 1;
 }
-.avoid-counter.warn  { color: var(--warning); }
-.avoid-counter.error { color: var(--danger); }
 
 /* ── Concept Strategy Presets ───────────────────────────────── */
 .ai-presets {
