@@ -897,12 +897,13 @@ const App = (() => {
   // Masonry skeleton heights — vary to look natural before images load
   const SKELETON_HEIGHTS = [200, 270, 230, 310, 245, 185, 290, 215, 260, 195];
 
-  // ── Skeleton Cards ───────────────────────────────────────────
-  function addSkeletonCards(count, startIndex = 0) {
+  // ── Skeleton Cards (used by concepts flow) ───────────────────
+  function addSkeletonCards(count, startIndex) {
+    startIndex = startIndex || 0;
     const grid = document.getElementById('board-grid');
     if (!grid) return;
     grid.classList.remove('hidden');
-    document.getElementById('board-empty')?.classList.add('hidden');
+    document.getElementById('board-empty') && document.getElementById('board-empty').classList.add('hidden');
 
     for (let i = 0; i < count; i++) {
       const idx  = startIndex + i;
@@ -920,7 +921,7 @@ const App = (() => {
 
   function replaceSkeletonCard(skeletonIndex, ad) {
     const grid     = document.getElementById('board-grid');
-    const skeleton = grid?.querySelector(`[data-skeleton-index="${skeletonIndex}"]`);
+    const skeleton = grid && grid.querySelector('[data-skeleton-index="' + skeletonIndex + '"]');
     if (skeleton && ad) {
       const realCard = buildBoardCard(ad);
       realCard.style.animation = 'card-in 0.4s cubic-bezier(0.16,1,0.3,1) both';
@@ -928,11 +929,144 @@ const App = (() => {
     } else if (skeleton) {
       skeleton.remove();
     }
-    updateBoardCount(grid?.querySelectorAll('.board-card:not(.skeleton)').length || 0);
-    // Show grid, hide empty if board has content
-    const total = grid?.querySelectorAll('.board-card').length || 0;
-    document.getElementById('board-empty')?.classList.toggle('hidden', total > 0);
-    grid?.classList.toggle('hidden', total === 0);
+    updateBoardCount((grid && grid.querySelectorAll('.board-card:not(.skeleton)').length) || 0);
+    const total = (grid && grid.querySelectorAll('.board-card').length) || 0;
+    document.getElementById('board-empty') && document.getElementById('board-empty').classList.toggle('hidden', total > 0);
+    grid && grid.classList.toggle('hidden', total === 0);
+  }
+
+  // ── Generation Slot Cards (used by remix flow) ───────────────
+  // Each slot card tracks one image's lifecycle: queued → processing → retrying → completed/failed
+
+  function _buildSlotCard(slot, slotState, data) {
+    const h    = SKELETON_HEIGHTS[slot % SKELETON_HEIGHTS.length];
+    const card = document.createElement('div');
+    card.className   = 'board-card gen-slot-card';
+    card.dataset.genSlot = slot;
+    const varLabel = 'Variation ' + (slot + 1);
+
+    let inner = '';
+    if (slotState === 'queued') {
+      inner = '<div class="slot-card-inner slot-queued" style="height:' + h + 'px">' +
+        '<div class="slot-icon">⏳</div>' +
+        '<div class="slot-label">Queued</div>' +
+        '<div class="slot-sub">' + varLabel + '</div></div>';
+    } else if (slotState === 'processing') {
+      inner = '<div class="slot-card-inner slot-processing" style="height:' + h + 'px">' +
+        '<div class="slot-spinner"></div>' +
+        '<div class="slot-label">Generating…</div>' +
+        '<div class="slot-sub">' + varLabel + '</div></div>';
+    } else if (slotState === 'retrying') {
+      const attempt = (data && data.attempt) || 1;
+      inner = '<div class="slot-card-inner slot-retrying" style="height:' + h + 'px">' +
+        '<div class="slot-icon slot-retry-icon">↺</div>' +
+        '<div class="slot-label">Retry ' + attempt + ' / 2</div>' +
+        '<div class="slot-sub">' + varLabel + '</div></div>';
+    } else if (slotState === 'failed') {
+      const errText = esc(((data && data.error) || 'Generation failed').substring(0, 70));
+      inner = '<div class="slot-card-inner slot-failed" style="height:' + h + 'px">' +
+        '<div class="slot-icon">✕</div>' +
+        '<div class="slot-label">Failed</div>' +
+        '<div class="slot-sub">' + errText + '</div></div>';
+    }
+
+    card.innerHTML = '<div class="board-card-img-wrap">' + inner + '</div>' +
+      '<div class="board-card-footer"><div class="board-card-tags">' +
+      '<span class="board-card-tag">' + varLabel + '</span></div></div>';
+    return card;
+  }
+
+  function addGenerationSlotCards(n) {
+    const grid = document.getElementById('board-grid');
+    if (!grid) return;
+    grid.classList.remove('hidden');
+    document.getElementById('board-empty') && document.getElementById('board-empty').classList.add('hidden');
+    // Prepend in reverse so slot 0 ends up at the top of the grid
+    for (let i = n - 1; i >= 0; i--) {
+      grid.prepend(_buildSlotCard(i, 'queued', null));
+    }
+    updateBoardCount(grid.querySelectorAll('.board-card').length);
+  }
+
+  function updateSlotCard(slot, slotState, data) {
+    const grid    = document.getElementById('board-grid');
+    const current = grid && grid.querySelector('[data-gen-slot="' + slot + '"]');
+    if (!current || current.classList.contains('slot-completed')) return;
+    const updated = _buildSlotCard(slot, slotState, data);
+    current.replaceWith(updated);
+  }
+
+  function replaceSlotCardWithAd(slot, ad) {
+    const grid    = document.getElementById('board-grid');
+    const current = grid && grid.querySelector('[data-gen-slot="' + slot + '"]');
+    const realCard = buildBoardCard(ad);
+    realCard.style.animation = 'card-in 0.4s cubic-bezier(0.16,1,0.3,1) both';
+    realCard.classList.add('slot-completed');
+    if (current) {
+      current.replaceWith(realCard);
+    } else {
+      grid && grid.prepend(realCard);
+    }
+    const realCount = (grid && grid.querySelectorAll('.board-card:not(.gen-slot-card)').length) || 0;
+    updateBoardCount(realCount);
+    const total = (grid && grid.querySelectorAll('.board-card').length) || 0;
+    document.getElementById('board-empty') && document.getElementById('board-empty').classList.toggle('hidden', total > 0);
+    grid && grid.classList.toggle('hidden', total === 0);
+  }
+
+  function addScoreBadge(adId, score) {
+    const grid = document.getElementById('board-grid');
+    const card = grid && grid.querySelector('[data-ad-id="' + adId + '"]');
+    if (!card) return;
+    const imgWrap = card.querySelector('.board-card-img-wrap');
+    if (!imgWrap) return;
+
+    // Remove existing badges
+    const old = imgWrap.querySelector('.card-score-badge');
+    if (old) old.remove();
+
+    const overall      = score && score.overall ? score.overall : 0;
+    const scoreClass   = overall >= 8 ? 'score-high' : overall >= 6 ? 'score-mid' : 'score-low';
+    const badge        = document.createElement('div');
+    badge.className    = 'card-score-badge ' + scoreClass;
+    badge.textContent  = '★ ' + overall.toFixed(1);
+    badge.title        = [
+      'Overall: '    + overall.toFixed(1),
+      'Product: '    + ((score.product_similarity  || 0).toFixed(1)),
+      'Logo: '       + ((score.logo_accuracy        || 0).toFixed(1)),
+      'Colors: '     + ((score.color_consistency    || 0).toFixed(1)),
+      'Clean: '      + ((score.no_hallucinations    || 0).toFixed(1)),
+      'Quality: '    + ((score.composition_quality  || 0).toFixed(1)),
+    ].join('\n');
+    imgWrap.appendChild(badge);
+
+    if (score && score.should_reject) {
+      card.classList.add('card-rejected');
+      const existing = imgWrap.querySelector('.card-reject-banner');
+      if (!existing) {
+        const banner = document.createElement('div');
+        banner.className   = 'card-reject-banner';
+        banner.textContent = '⚠ Low Quality';
+        imgWrap.appendChild(banner);
+      }
+    }
+  }
+
+  function markBestCard(adId) {
+    const grid = document.getElementById('board-grid');
+    const card = grid && grid.querySelector('[data-ad-id="' + adId + '"]');
+    if (!card) return;
+    card.classList.add('card-best');
+    const imgWrap = card.querySelector('.board-card-img-wrap');
+    if (imgWrap) {
+      const existing = imgWrap.querySelector('.card-best-badge');
+      if (!existing) {
+        const badge       = document.createElement('div');
+        badge.className   = 'card-best-badge';
+        badge.textContent = '✦ Best';
+        imgWrap.appendChild(badge);
+      }
+    }
   }
 
   // ── Tab switching ────────────────────────────────────────────
@@ -1394,7 +1528,7 @@ const App = (() => {
     setGeneratingBtn(btn, 'btn-remix-label', `Generating…`);
 
     setWorkspaceState(WS.GENERATING);  // switches to board tab, shows pulsing indicator
-    addSkeletonCards(n, 0);
+    addGenerationSlotCards(n);
     startGenerationProgress(n);
     _genTimer.reset();
     _genTimer.start();
@@ -1419,34 +1553,55 @@ const App = (() => {
 
     try {
       await streamGenerate('/generate/remix/stream', formData, (event) => {
-        if (event.type === 'progress' && event.success) {
+        // ── Slot-based events (remix pipeline) ──────────────────
+        if (event.type === 'slot_processing') {
+          updateSlotCard(event.slot, 'processing', null);
+
+        } else if (event.type === 'slot_retrying') {
+          updateSlotCard(event.slot, 'retrying', { attempt: event.attempt });
+
+        } else if (event.type === 'slot_completed') {
           completedCount++;
           updateGenerationProgress(completedCount, n);
-          replaceSkeletonCard(completedCount - 1, event.ad);
+          replaceSlotCardWithAd(event.slot, event.ad);
           state.boardAds.unshift(event.ad);
           updateBoardStats();
-        } else if (event.type === 'progress' && !event.success) {
+
+        } else if (event.type === 'slot_failed') {
           completedCount++;
           updateGenerationProgress(completedCount, n);
-          replaceSkeletonCard(completedCount - 1, null);
-          toast(`Variation ${event.variationIndex} failed`, 'error');
+          updateSlotCard(event.slot, 'failed', { error: event.error });
+          toast('Variation ' + (event.slot + 1) + ' failed', 'error');
+
+        } else if (event.type === 'slot_scored') {
+          addScoreBadge(event.ad_id, event.score);
+
+        } else if (event.type === 'best_selected') {
+          markBestCard(event.ad_id);
+
+        // ── Batch-level events ───────────────────────────────────
         } else if (event.type === 'done') {
           state.remix.lastStrategy = event.creativeStrategy;
           if (event.creativeStrategy) renderContextStrategy(event.creativeStrategy);
+
         } else if (event.type === 'error') {
           toast('Generation error: ' + event.message, 'error');
         }
+        // Note: legacy 'progress' events from the same stream are intentionally
+        // ignored here — slot_* events carry all the needed information.
       });
 
-      toast(`${completedCount} ad${completedCount !== 1 ? 's' : ''} generated!`);
+      toast(completedCount + ' ad' + (completedCount !== 1 ? 's' : '') + ' generated!');
     } catch (err) {
-      document.querySelectorAll('.board-card.skeleton').forEach(s => s.remove());
+      document.querySelectorAll('.board-card.gen-slot-card').forEach(function(s) { s.remove(); });
       toast('Generation failed: ' + err.message, 'error');
     } finally {
+      // Remove any leftover slot cards (failed ones that weren't replaced)
+      document.querySelectorAll('.board-card.gen-slot-card').forEach(function(s) { s.remove(); });
       _genTimer.stop();
       resetBtn(btn, 'btn-remix-label', '✦ Generate');
       endGenerationProgress();
-      setWorkspaceState(WS.BOARD);  // generation complete
+      setWorkspaceState(WS.BOARD);
       applyBoardFilter();
     }
   }
@@ -2606,6 +2761,7 @@ const App = (() => {
 
     // Remix
     triggerRemixGenerate,
+    addGenerationSlotCards, updateSlotCard, replaceSlotCardWithAd, addScoreBadge, markBestCard,
 
     // Editable Design Mode
     setGenMode, generateEditableDesign, renderEditableDesignPreview,

@@ -24,6 +24,7 @@ require('../utils/paths'); // ensures upload dirs are created on startup
 const { composeCreativeStrategy } = require('./promptComposerService');
 const { getRelevantMemoriesForBrand, formatMemoryContext } = require('./brandMemoryService');
 const { buildLayoutFromStrategy, saveLayout } = require('./layoutService');
+const { scoreGeneration, selectBest } = require('./validationService');
 
 // Lazy-init — safe to load without OPENAI_API_KEY at startup
 let _openai = null;
@@ -66,6 +67,19 @@ function getSpeedConfig(speedMode) {
 
 // Legacy helper kept for remixGenerate (single-image path, not used in production UI)
 const imageModel = () => process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// Appended to every generation prompt — enforces exact product reproduction
+const PRODUCT_FIDELITY_SUFFIX = `
+
+[PRODUCT FIDELITY — MANDATORY]
+The product shown in the product reference image MUST be reproduced EXACTLY:
+• Identical shape, proportions, packaging design, colors, label text, and surface finish
+• Feature as the clear hero element — prominent, in sharp focus, photo-realistic detail
+• Exactly ONE product unit — never add duplicate copies floating in background or scene
+• Every visible packaging detail must match the reference precisely
+FORBIDDEN: changed product shape, altered labels or brand text, extra product copies, generic substitutions`;
 
 // V1 baseline — used when prompt composer is unavailable or fails
 function buildBaselinePrompt(brand, instructions) {
@@ -251,11 +265,11 @@ async function remixGenerate({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const VARIATION_DIRECTIVES = [
-  'Variation 1: Clean premium version — refined, minimal, high-end execution of the reference layout.',
-  'Variation 2: Bold direct-response version — stronger contrast, bigger typography, urgent CTA, high-impact visual.',
-  'Variation 3: Lifestyle-forward version — warmer, human-centered scene, emotional storytelling.',
-  'Variation 4: Minimalist product-focus version — clean white/light background, product hero shot, sparse design.',
-  'Variation 5: Color-pop experimental version — bolder brand color usage, energetic palette, eye-catching modern style.',
+  'Variation 1: Clean premium version — refined, minimal, high-end execution of the reference layout. The product must remain the exact unchanged hero, photographically accurate.',
+  'Variation 2: Bold direct-response version — stronger contrast, bigger typography, urgent CTA. Feature the same product from the reference with complete packaging fidelity.',
+  'Variation 3: Lifestyle-forward version — warmer, human-centered scene, emotional storytelling. The exact product must appear as photographed — same packaging, same finish.',
+  'Variation 4: Minimalist product-focus version — clean white/light background, pure product hero shot, sparse design. Reproduce every product detail precisely.',
+  'Variation 5: Color-pop experimental version — bolder brand color usage, energetic palette. Product packaging must match the reference exactly — no alterations.',
 ];
 
 // Worker-pool concurrency: spawn `limit` workers, each grabs tasks from a shared index
@@ -477,9 +491,15 @@ async function remixGenerateBatch({
 // ─────────────────────────────────────────────────────────────────────────────
 // remixGenerateBatchStream
 //
-// Same pipeline as remixGenerateBatch but fires onProgress(result) immediately
-// when each image completes — used by the SSE endpoint for live board updates.
-// Supports up to 20 images (for large concept-mode runs).
+// Multi-generation pipeline:
+//   1. Announces all slots as "queued" via SSE immediately
+//   2. Generates images with per-slot concurrency, retrying up to 2× on failure
+//      with exponential backoff (2 s, 4 s)
+//   3. Fires SSE events: slot_queued → slot_processing → (slot_retrying) →
+//      slot_completed | slot_failed
+//   4. After all generation, scores completed images concurrently via GPT-4o
+//      and fires slot_scored + best_selected
+//   5. Also fires legacy "progress" events for backward compat with concepts flow
 // ─────────────────────────────────────────────────────────────────────────────
 async function remixGenerateBatchStream({
   brandId,
@@ -499,7 +519,11 @@ async function remixGenerateBatchStream({
   const n          = Math.max(1, Math.min(20, parseInt(count, 10) || 1));
   const speedCfg   = getSpeedConfig(speedMode);
   const batchStart = Date.now();
+  const MAX_RETRIES = 2;
 
+  const emit = (event) => { if (onProgress) onProgress(event); };
+
+  // ── 1. Brand context ──────────────────────────────────────────────────────
   const { rows: brandRows } = await query(
     `SELECT id, name, industry, description, primary_color, secondary_color,
             primary_font, secondary_font, headline_style, typography_personality
@@ -509,6 +533,7 @@ async function remixGenerateBatchStream({
   if (!brandRows.length) throw new AppError('Brand not found', 404);
   const brand = brandRows[0];
 
+  // ── 2. Prompt composer — runs ONCE for the whole batch ───────────────────
   let strategy     = null;
   let basePrompt   = null;
   let composerUsed = false;
@@ -539,34 +564,37 @@ async function remixGenerateBatchStream({
                  : aspectRatio === 'landscape' ? 'landscape'
                  : 'single_image';
 
-  const tasks = Array.from({ length: n }, (_, i) => async () => {
+  // ── 3. Announce all slots as queued ──────────────────────────────────────
+  for (let i = 0; i < n; i++) {
+    emit({ type: 'slot_queued', slot: i, total: n });
+  }
+
+  // ── 4. Per-slot generation function (pure, throws on failure) ────────────
+  async function generateSlot(slot) {
     const variationSuffix = n > 1
-      ? `\n\n${VARIATION_DIRECTIVES[i % VARIATION_DIRECTIVES.length]}`
+      ? `\n\n${VARIATION_DIRECTIVES[slot % VARIATION_DIRECTIVES.length]}`
       : '';
-    const prompt = imageContextHeader + basePrompt + variationSuffix;
+    const prompt = imageContextHeader + basePrompt + variationSuffix + PRODUCT_FIDELITY_SUFFIX;
 
     const [refFile, prodFile] = await Promise.all([
       toFile(fs.createReadStream(referenceImagePath), 'reference.png', { type: referenceImageMime || 'image/png' }),
       toFile(fs.createReadStream(productImagePath),   'product.png',   { type: productImageMime   || 'image/png' }),
     ]);
 
-    console.log('[generationService] calling OpenAI image edit:', {
-      model, size, prompt_length: prompt.length,
-      ref_path: referenceImagePath, prod_path: productImagePath,
-      ref_mime: referenceImageMime, prod_mime: productImageMime,
-      variation: i + 1,
-    });
+    console.log('[generationService] slot', slot, '— calling OpenAI image edit:', { model, size, slot });
 
     let openaiResponse;
     try {
       openaiResponse = await openai.images.edit({ model, image: [refFile, prodFile], prompt, size, n: 1 });
     } catch (err) {
-      const detail = err?.error?.message || err?.message || 'Unknown OpenAI error';
-      console.error('[generationService] OpenAI image edit failed:', { model, detail, status: err?.status });
-      throw new AppError(`Image generation failed (${model}): ${detail}`, err?.status || 502);
+      const detail = err && err.error && err.error.message
+        ? err.error.message
+        : (err && err.message) || 'Unknown OpenAI error';
+      console.error('[generationService] slot', slot, 'OpenAI failed:', { model, detail, status: err && err.status });
+      throw new AppError(`Image generation failed (${model}): ${detail}`, (err && err.status) || 502);
     }
 
-    const b64 = openaiResponse.data?.[0]?.b64_json;
+    const b64 = openaiResponse.data && openaiResponse.data[0] && openaiResponse.data[0].b64_json;
     if (!b64) throw new AppError('OpenAI returned no image data', 502);
 
     const imageUrl = `data:image/png;base64,${b64}`;
@@ -577,18 +605,17 @@ async function remixGenerateBatchStream({
       instructions:       instructions || null,
       strategy:           strategy || null,
       batch_id:           batchId,
-      variation_index:    i + 1,
-      variation_directive: n > 1 ? VARIATION_DIRECTIVES[i % VARIATION_DIRECTIVES.length] : null,
+      variation_index:    slot + 1,
+      variation_directive: n > 1 ? VARIATION_DIRECTIVES[slot % VARIATION_DIRECTIVES.length] : null,
       speed_mode:         speedMode,
       image_model:        model,
-      concurrency:        speedCfg.concurrency,
     };
 
     const insertParams = [
       brandId, prompt, imageUrl, null,
       'meta', adFormat,
       composerUsed ? `gpt-4.1-mini + ${model}` : model,
-      JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: i + 1, composer_used: composerUsed, image_model: model, speed_mode: speedMode }),
+      JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: slot + 1, composer_used: composerUsed, image_model: model, speed_mode: speedMode }),
       'draft',
       JSON.stringify(metadataPayload),
     ];
@@ -613,7 +640,7 @@ async function remixGenerateBatchStream({
     const { rows } = await query(sql, finalParams);
     const streamAd = rows[0];
 
-    // Save layout non-blocking
+    // Layout save — non-blocking, never fails the pipeline
     try {
       const layoutJson = buildLayoutFromStrategy(strategy, brand, aspectRatio, streamAd.id);
       await saveLayout(streamAd.id, layoutJson);
@@ -621,9 +648,90 @@ async function remixGenerateBatchStream({
       console.warn('[layoutService] stream layout save failed for ad', streamAd.id, ':', layoutErr.message);
     }
 
-    return { ad: streamAd, imageUrl, variationIndex: i + 1 };
-  });
+    return { ad: streamAd, imageUrl, variationIndex: slot + 1, b64 };
+  }
 
+  // ── 5. Concurrent slot workers with retry + exponential backoff ──────────
+  const slotResults = new Array(n).fill(null);
+  let nextSlot = 0;
+
+  async function slotWorker() {
+    while (nextSlot < n) {
+      const slot = nextSlot++;
+      let lastErr = null;
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt === 0) {
+          emit({ type: 'slot_processing', slot });
+        } else {
+          const delayMs = Math.pow(2, attempt - 1) * 2000; // 2 s, 4 s
+          emit({ type: 'slot_retrying', slot, attempt, delay_ms: delayMs });
+          await sleep(delayMs);
+        }
+
+        try {
+          const result    = await generateSlot(slot);
+          slotResults[slot] = result;
+
+          // Slot-based event (remix UI)
+          emit({ type: 'slot_completed', slot, ad: result.ad, imageUrl: result.imageUrl, variationIndex: result.variationIndex });
+          // Legacy event (concepts UI backward compat)
+          emit({ type: 'progress', success: true, ad: result.ad, imageUrl: result.imageUrl, variationIndex: result.variationIndex });
+          break; // success — exit retry loop
+        } catch (err) {
+          lastErr = err;
+          console.warn(`[generationService] slot ${slot} attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${err.message}`);
+
+          if (attempt === MAX_RETRIES) {
+            slotResults[slot] = { failed: true, error: err.message || String(err), attempts: attempt + 1 };
+            emit({ type: 'slot_failed', slot, error: slotResults[slot].error, attempts: attempt + 1 });
+            // Legacy event
+            emit({ type: 'progress', success: false, variationIndex: slot + 1, error: slotResults[slot].error });
+          }
+        }
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(speedCfg.concurrency, n) }, () => slotWorker())
+  );
+
+  // ── 6. Post-generation scoring (concurrent, non-blocking to stream) ───────
+  const validSlots = slotResults
+    .map((r, i) => r && !r.failed ? { slot: i, ad: r.ad, b64: r.b64 } : null)
+    .filter(Boolean);
+
+  if (validSlots.length > 0) {
+    try {
+      const scoringResults = await Promise.all(
+        validSlots.map(async (s) => {
+          try {
+            const score = await scoreGeneration({
+              productImagePath,
+              productImageMime,
+              generatedB64: s.b64,
+            });
+            emit({ type: 'slot_scored', slot: s.slot, ad_id: s.ad.id, score });
+            return { slot: s.slot, ad: s.ad, score };
+          } catch (scoreErr) {
+            console.warn('[generationService] scoring slot', s.slot, 'failed:', scoreErr.message);
+            return null;
+          }
+        })
+      );
+
+      const scoredValid = scoringResults.filter(Boolean);
+      const best = selectBest(scoredValid);
+      if (best) {
+        emit({ type: 'best_selected', slot: best.slot, ad_id: best.ad.id, score: best.score });
+      }
+    } catch (scoringPipelineErr) {
+      console.warn('[generationService] scoring pipeline failed:', scoringPipelineErr.message);
+    }
+  }
+
+  // ── 7. Summary ────────────────────────────────────────────────────────────
   const creativeStrategy = strategy
     ? {
         composerUsed,
@@ -640,24 +748,15 @@ async function remixGenerateBatchStream({
       }
     : { composerUsed: false, imageModel: model, enhanced_prompt: basePrompt };
 
-  const rawResults = await runWithConcurrency(tasks, speedCfg.concurrency, (each) => {
-    if (onProgress) {
-      onProgress(each.success
-        ? { type: 'progress', success: true,  ...each.result }
-        : { type: 'progress', success: false, variationIndex: each.index + 1, error: each.error }
-      );
-    }
-  });
-
   return {
-    batch_id:                      batchId,
-    count:                         n,
-    speed_mode:                    speedMode,
+    batch_id:                       batchId,
+    count:                          n,
+    speed_mode:                     speedMode,
     actual_generation_time_seconds: (Date.now() - batchStart) / 1000,
-    results:  rawResults.map((r, i) =>
-      r?.failed
+    results: slotResults.map((r, i) =>
+      r && r.failed
         ? { success: false, variationIndex: i + 1, error: r.error }
-        : { success: true, ...r }
+        : { success: true, ad: r.ad, imageUrl: r.imageUrl, variationIndex: r.variationIndex }
     ),
     creativeStrategy,
   };

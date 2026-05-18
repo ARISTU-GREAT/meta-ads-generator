@@ -1228,6 +1228,143 @@ body {
   100% { background-position: -200% 0; }
 }
 
+/* ── Generation Slot Cards ───────────────────────────────────── */
+.board-card.gen-slot-card { cursor: default; pointer-events: none; }
+
+.slot-card-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+}
+
+/* Queued — neutral shimmer */
+.slot-queued {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e8ecf2 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+}
+
+/* Processing — accent shimmer */
+.slot-processing {
+  background: linear-gradient(90deg, #eff0ff 25%, #dde0ff 50%, #eff0ff 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+}
+
+/* Retrying — amber pulse */
+.slot-retrying {
+  background: linear-gradient(90deg, #fffbeb 25%, #fef3c7 50%, #fffbeb 75%);
+  background-size: 200% 100%;
+  animation: shimmer 0.9s infinite;
+}
+
+/* Failed — muted red */
+.slot-failed {
+  background: #fff5f5;
+  border: 1px solid rgba(220,38,38,0.15);
+}
+
+.slot-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  opacity: 0.7;
+}
+.slot-retry-icon {
+  color: #d97706;
+  opacity: 1;
+  font-size: 1.6rem;
+}
+.slot-failed .slot-icon { color: #dc2626; opacity: 0.8; }
+
+.slot-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.01em;
+}
+.slot-processing .slot-label { color: #5b6af0; }
+.slot-retrying .slot-label   { color: #d97706; }
+.slot-failed .slot-label     { color: #dc2626; }
+
+.slot-sub {
+  font-size: 0.68rem;
+  color: var(--text-3);
+}
+
+/* Processing spinner (CSS-only) */
+.slot-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid rgba(91,106,240,0.2);
+  border-top-color: #5b6af0;
+  border-radius: 50%;
+  animation: slot-spin 0.75s linear infinite;
+  margin-bottom: 2px;
+}
+@keyframes slot-spin { to { transform: rotate(360deg); } }
+
+/* ── Score Badge (overlaid on card image) ───────────────────── */
+.card-score-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 20px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  cursor: default;
+  white-space: nowrap;
+}
+.score-high { background: rgba(22,163,74,0.88);  color: #fff; }
+.score-mid  { background: rgba(217,119,6,0.88);  color: #fff; }
+.score-low  { background: rgba(220,38,38,0.88);  color: #fff; }
+
+/* ── Best Badge ─────────────────────────────────────────────── */
+.card-best-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: rgba(91,106,240,0.92);
+  color: #fff;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.card-best { box-shadow: 0 0 0 2px #5b6af0, 0 4px 16px rgba(91,106,240,0.25); }
+
+/* ── Rejected Card Indicator ───────────────────────────────── */
+.card-reject-banner {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  font-size: 0.67rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: rgba(220,38,38,0.85);
+  color: #fff;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.card-rejected {
+  opacity: 0.75;
+  box-shadow: 0 0 0 2px rgba(220,38,38,0.4);
+}
+
 /* ── Context Panel (right) ──────────────────────────────────── */
 .context-panel {
   width: var(--context-w);
