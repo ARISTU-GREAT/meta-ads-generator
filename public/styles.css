@@ -575,12 +575,15 @@ body {
 }
 
 /* ── Avoid While Generating Section ────────────────────────── */
+/* ── Avoid While Generating ─────────────────────────────────── */
+/* Section: NO overflow:hidden — lets the body expand freely in normal flow */
 .avoid-section {
   border: 1px solid var(--border);
   border-radius: var(--r);
-  overflow: hidden;
   margin-top: 2px;
+  overflow: visible;
 }
+/* Toggle button: rounded top corners, square bottom when open */
 .avoid-toggle {
   display: flex;
   align-items: center;
@@ -589,11 +592,13 @@ body {
   cursor: pointer;
   background: var(--surface-2);
   border: none;
+  border-radius: var(--r) var(--r) 0 0;
   width: 100%;
   text-align: left;
   user-select: none;
   pointer-events: auto;
 }
+.avoid-section:not(.open) .avoid-toggle { border-radius: var(--r); }
 .avoid-toggle:hover { background: var(--accent-dim); }
 .avoid-toggle-icon { font-size: 0.78rem; line-height: 1; }
 .avoid-toggle-label {
@@ -613,43 +618,40 @@ body {
 .avoid-chevron {
   font-size: 0.65rem;
   color: var(--text-3);
-  transition: transform 0.2s ease;
+  transition: transform 0.25s ease;
   margin-left: auto;
   flex-shrink: 0;
   display: inline-block;
 }
-/* Chevron points down when open, right when collapsed */
-.avoid-section.open .avoid-chevron { transform: rotate(0deg); }
+.avoid-section.open .avoid-chevron    { transform: rotate(0deg); }
 .avoid-section:not(.open) .avoid-chevron { transform: rotate(-90deg); }
-/* Animated accordion body */
+/* Body: overflow:hidden is required for max-height animation */
 .avoid-body {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+  max-height: 600px;
+  opacity: 1;
+  overflow: hidden;
+  transition: all 0.25s ease;
+  padding: 10px 10px 12px;
   background: var(--surface);
   border-top: 1px solid var(--border);
-  max-height: 600px;
-  overflow: hidden;
-  padding: 8px 10px 10px;
-  opacity: 1;
-  transition: max-height 0.22s ease, padding 0.18s ease, opacity 0.18s ease, border-top-width 0.18s ease;
-  pointer-events: auto;
-  position: relative;
-  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* DEBUG: confirm body is rendering */
+  outline: 2px solid red;
+  outline-offset: -2px;
 }
 .avoid-body.hidden {
   max-height: 0;
+  opacity: 0;
   padding-top: 0;
   padding-bottom: 0;
-  opacity: 0;
-  border-top-width: 0;
-  pointer-events: none;
+  border-top-color: transparent;
 }
 .avoid-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  pointer-events: auto;
 }
 .avoid-chip {
   font-size: 0.65rem;
@@ -659,7 +661,6 @@ body {
   background: var(--surface-2);
   color: var(--text-2);
   cursor: pointer;
-  pointer-events: auto;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
   white-space: nowrap;
   line-height: 1.5;
@@ -670,17 +671,17 @@ body {
   color: #fff;
   border-color: var(--accent);
 }
-.avoid-input-wrap {
-  position: relative;
-  pointer-events: auto;
-}
+/* Input wrap: relative only for the counter overlay */
+.avoid-input-wrap { position: relative; }
 .avoid-textarea {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
-  resize: vertical;
   min-height: 120px;
   height: 120px;
-  font-size: 0.72rem !important;
-  padding: 7px 8px 22px !important;
+  resize: vertical;
+  font-size: 0.72rem;
+  padding: 7px 8px 22px;
   border: 1px solid var(--border-md);
   border-radius: var(--r-sm);
   color: var(--text);
@@ -690,10 +691,6 @@ body {
   pointer-events: auto;
   user-select: text;
   cursor: text;
-  position: relative;
-  z-index: 2;
-  display: block;
-  box-sizing: border-box;
 }
 .avoid-textarea:focus {
   outline: none;
@@ -708,7 +705,7 @@ body {
   color: var(--text-3);
   pointer-events: none;
 }
-.avoid-counter.warn { color: var(--warning); }
+.avoid-counter.warn  { color: var(--warning); }
 .avoid-counter.error { color: var(--danger); }
 
 /* ── Concept Strategy Presets ───────────────────────────────── */
