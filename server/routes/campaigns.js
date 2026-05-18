@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { query }    = require('../db');
 const { asyncHandler, AppError } = require('../utils/errors');
+const { logEvent } = require('../services/auditService');
 
 // GET /api/campaigns?brand_id=...
 router.get('/', asyncHandler(async (req, res) => {
@@ -30,7 +31,9 @@ router.post('/', asyncHandler(async (req, res) => {
     `INSERT INTO campaigns (brand_id, name, mode) VALUES ($1, $2, $3) RETURNING *`,
     [brand_id, name, mode || 'remix']
   );
-  res.status(201).json({ success: true, data: rows[0] });
+  const campaign = rows[0];
+  logEvent(req, { event_type: 'campaign_created', entity_type: 'campaign', entity_id: campaign.id, brand_id: campaign.brand_id, message: 'Campaign created: ' + campaign.name }).catch(() => {});
+  res.status(201).json({ success: true, data: campaign });
 }));
 
 // GET /api/campaigns/:id

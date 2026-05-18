@@ -9,6 +9,7 @@ const { TEMP_DIR }                 = require('../utils/paths');
 const { query }                    = require('../db');
 const generationService            = require('../services/generationService');
 const { resolveImage }             = require('../utils/assetResolver');
+const { logEvent }                 = require('../services/auditService');
 
 const upload = multer({
   dest: TEMP_DIR,
@@ -170,6 +171,7 @@ router.post(
     sendEvent({ type: 'start', count: n });
 
     try {
+      logEvent(req, { event_type: 'ad_generation_started', brand_id: brand_id, campaign_id: campaign_id || null, message: 'Generation started: ' + n + ' images' }).catch(() => {});
       const result = await generationService.remixGenerateBatchStream({
         brandId:            brand_id,
         referenceImagePath: refResolved.path,
@@ -193,12 +195,14 @@ router.post(
         generation_time:  result.actual_generation_time_seconds,
         creativeStrategy: result.creativeStrategy,
       });
+      logEvent(req, { event_type: 'ad_generation_completed', brand_id: brand_id, campaign_id: campaign_id || null, message: 'Generation completed' }).catch(() => {});
     } catch (err) {
       console.error('[generate/stream] fatal generation error:', {
         message:   err.message,
         brand_id, aspect_ratio, count: n,
         stack:     err.stack?.split('\n').slice(0,4).join(' | '),
       });
+      logEvent(req, { event_type: 'ad_generation_failed', brand_id: brand_id, metadata: { error: err.message } }).catch(() => {});
       sendEvent({ type: 'error', message: err.message || 'Image generation failed' });
     } finally {
       refResolved?.cleanup();

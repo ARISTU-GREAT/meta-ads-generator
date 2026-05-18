@@ -358,3 +358,27 @@ CREATE TRIGGER update_creative_memories_updated_at
   BEFORE UPDATE ON creative_memories FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_angle_library_updated_at
   BEFORE UPDATE ON angle_library FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ────────────────────────────────────────────────────────────
+-- AUDIT_EVENTS — immutable activity log
+-- ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_events (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+  user_email   TEXT,
+  event_type   TEXT NOT NULL,
+  entity_type  TEXT,
+  entity_id    UUID,
+  brand_id     UUID REFERENCES brands(id) ON DELETE SET NULL,
+  campaign_id  UUID REFERENCES campaigns(id) ON DELETE SET NULL,
+  message      TEXT,
+  metadata     JSONB DEFAULT '{}',
+  ip_address   TEXT,
+  user_agent   TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_created_at  ON audit_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_event_type  ON audit_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_events_user_email  ON audit_events(user_email);
+CREATE INDEX IF NOT EXISTS idx_audit_events_brand_id    ON audit_events(brand_id);
+CREATE INDEX IF NOT EXISTS idx_audit_events_campaign_id ON audit_events(campaign_id);

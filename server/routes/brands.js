@@ -3,6 +3,7 @@ const router       = express.Router();
 const brandService = require('../services/brandService');
 const { asyncHandler } = require('../utils/errors');
 const memoryRouter = require('./memory');
+const { logEvent } = require('../services/auditService');
 
 // GET /api/brands
 router.get('/', asyncHandler(async (req, res) => {
@@ -19,6 +20,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 // POST /api/brands
 router.post('/', asyncHandler(async (req, res) => {
   const brand = await brandService.createBrand(req.body);
+  logEvent(req, { event_type: 'brand_created', entity_type: 'brand', entity_id: brand.id, message: 'Brand created: ' + brand.name }).catch(() => {});
   res.status(201).json({ success: true, data: brand });
 }));
 
@@ -26,12 +28,14 @@ router.post('/', asyncHandler(async (req, res) => {
 router.put('/:id', asyncHandler(async (req, res) => {
   const brand = await brandService.updateBrand(req.params.id, req.body);
   if (!brand) return res.status(404).json({ success: false, error: 'Brand not found' });
+  logEvent(req, { event_type: 'brand_updated', entity_type: 'brand', entity_id: brand.id, message: 'Brand updated: ' + brand.name }).catch(() => {});
   res.json({ success: true, data: brand });
 }));
 
 // DELETE /api/brands/:id  (soft delete)
 router.delete('/:id', asyncHandler(async (req, res) => {
   await brandService.deactivateBrand(req.params.id);
+  logEvent(req, { event_type: 'brand_deleted', entity_type: 'brand', entity_id: req.params.id }).catch(() => {});
   res.json({ success: true, message: 'Brand deactivated' });
 }));
 

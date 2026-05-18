@@ -355,6 +355,14 @@ body {
   color: #fff;
 }
 .topbar-btn-primary:hover { background: var(--accent-h); border-color: var(--accent-h); color: #fff; }
+.topbar-btn-admin {
+  text-decoration: none;
+  font-size: 0.75rem;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.topbar-btn-admin:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
 
 /* ── App Body ───────────────────────────────────────────────── */
 .app-body {

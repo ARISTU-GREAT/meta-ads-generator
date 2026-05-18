@@ -4,6 +4,7 @@ const router  = express.Router();
 const { query } = require('../db');
 const { asyncHandler, AppError } = require('../utils/errors');
 const { ADMIN_EMAILS, isAdminEmail } = require('../middleware/auth');
+const { logEvent } = require('../services/auditService');
 
 const BCRYPT_ROUNDS = 12;
 
@@ -85,6 +86,7 @@ router.post('/signup', asyncHandler(async (req, res) => {
   sessionFor(req, user);
   req.session.save(err => {
     if (err) return res.status(500).json({ success: false, error: 'Session save failed' });
+    logEvent(req, { event_type: 'user_signup', message: 'Admin account created' }).catch(() => {});
     res.status(201).json({ success: true, email: user.email, role: user.role });
   });
 }));
@@ -109,12 +111,14 @@ router.post('/login', asyncHandler(async (req, res) => {
   req.session.save(err => {
     if (err) return res.status(500).json({ success: false, error: 'Session save failed' });
     console.log('[auth/login] session saved | sid:', req.session.id, '| user_id:', user.id);
+    logEvent(req, { event_type: 'user_login', message: 'User logged in' }).catch(() => {});
     res.json({ success: true, email: user.email, role: user.role });
   });
 }));
 
 // ── POST /api/auth/logout ────────────────────────────────────
 router.post('/logout', (req, res) => {
+  logEvent(req, { event_type: 'user_logout', message: 'User logged out' }).catch(() => {});
   req.session.destroy(() => {
     res.clearCookie('connect.sid');
     res.json({ success: true });

@@ -16,7 +16,8 @@ const conceptsRouter   = require('./routes/concepts');
 const authRouter       = require('./routes/auth');
 const aiRouter              = require('./routes/ai');
 const editableDesignsRouter = require('./routes/editableDesigns');
-const { requireAuth }       = require('./middleware/auth');
+const adminRouter           = require('./routes/admin');
+const { requireAuth, requireAdmin } = require('./middleware/auth');
 const { errorHandler, notFound } = require('./utils/errors');
 const { UPLOAD_BASE }  = require('./utils/paths');
 const logger = require('./utils/logger');
@@ -133,6 +134,12 @@ app.use('/api/concepts',  conceptsRouter);
 app.use('/api/ai',               aiRouter);
 app.use('/api/editable-designs', editableDesignsRouter);
 app.use('/api/ads/:id/layout',   layoutsRouter);
+
+// Admin API — protected by requireAdmin
+app.use('/api/admin', requireAdmin, adminRouter);
+
+// Admin panel HTML — served before the generic SPA fallback
+app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, '../public/admin.html')));
 
 // SPA fallback — only for non-API, non-asset routes
 app.get('*', (req, res, next) => {

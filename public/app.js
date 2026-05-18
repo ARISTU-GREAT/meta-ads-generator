@@ -53,6 +53,10 @@ const Auth = (() => {
 
       if (me.authenticated) {
         showApp();
+        if (me.isAdmin) {
+          var adminBtn = document.getElementById('btn-admin');
+          if (adminBtn) adminBtn.classList.remove('hidden');
+        }
         App.init();
         return;
       }
