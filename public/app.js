@@ -205,7 +205,7 @@ const App = (() => {
       productFile:       null,
       productAssetId:    null,
       productAssetUrl:   null,
-      aspectRatio:       'square',
+      selectedRatios:    ['square', 'portrait'], // default: 1:1 + 4:5
       outputVolume:      5,
       lastStrategy:      null,
     },
@@ -832,10 +832,12 @@ const App = (() => {
   }
 
   function buildBoardCard(ad) {
-    const metadata = safeJSON(ad.metadata) || {};
-    const strategy = metadata.strategy || {};
-    const format   = ad.ad_format || strategy.layout_type || 'ad';
-    const energy   = strategy.ad_energy || '';
+    const metadata    = safeJSON(ad.metadata) || {};
+    const strategy    = metadata.strategy || {};
+    const format      = ad.ad_format || strategy.layout_type || 'ad';
+    const energy      = strategy.ad_energy || '';
+    const ratioKey    = metadata.aspect_ratio || '';
+    const ratioLabel  = RATIO_DISPLAY[ratioKey] || '';
 
     const card = document.createElement('div');
     card.className = 'board-card';
@@ -859,6 +861,7 @@ const App = (() => {
         <div class="board-card-tags">
           ${format ? `<span class="board-card-tag">${esc(format.replace(/_/g,' '))}</span>` : ''}
           ${energy ? `<span class="board-card-tag" style="background:var(--surface-2);color:var(--text-3);">${esc(energy)}</span>` : ''}
+          ${ratioLabel ? `<span class="board-card-tag board-card-ratio">${esc(ratioLabel)}</span>` : ''}
         </div>
         <span class="board-card-status status-${ad.status || 'draft'}"></span>
       </div>`;
@@ -1059,12 +1062,14 @@ const App = (() => {
   // ── Generation Slot Cards (used by remix flow) ───────────────
   // Each slot card tracks one image's lifecycle: queued → processing → retrying → completed/failed
 
-  function _buildSlotCard(slot, slotState, data) {
+  function _buildSlotCard(slot, slotState, data, ratioLabel) {
     const h    = SKELETON_HEIGHTS[slot % SKELETON_HEIGHTS.length];
     const card = document.createElement('div');
     card.className   = 'board-card gen-slot-card';
     card.dataset.genSlot = slot;
-    const varLabel = 'Variation ' + (slot + 1);
+    const varNum   = (data && data.variation != null) ? data.variation + 1 : slot + 1;
+    const rLabel   = ratioLabel || (data && data.ratio && RATIO_DISPLAY[data.ratio]) || '';
+    const varLabel = rLabel ? `Var ${varNum} · ${rLabel}` : 'Variation ' + varNum;
 
     let inner = '';
     if (slotState === 'queued') {
@@ -1091,20 +1096,36 @@ const App = (() => {
         '<div class="slot-sub">' + errText + '</div></div>';
     }
 
+    const ratioTag = rLabel ? '<span class="board-card-tag board-card-ratio">' + esc(rLabel) + '</span>' : '';
     card.innerHTML = '<div class="board-card-img-wrap">' + inner + '</div>' +
       '<div class="board-card-footer"><div class="board-card-tags">' +
-      '<span class="board-card-tag">' + varLabel + '</span></div></div>';
+      '<span class="board-card-tag">Var ' + varNum + '</span>' + ratioTag + '</div></div>';
     return card;
   }
 
-  function addGenerationSlotCards(n) {
+  // Accepts either a plain count (n) or an object {n, ratios} for multi-ratio batches
+  function addGenerationSlotCards(nOrOpts) {
     const grid = document.getElementById('board-grid');
     if (!grid) return;
     grid.classList.remove('hidden');
     document.getElementById('board-empty') && document.getElementById('board-empty').classList.add('hidden');
+
+    let total, ratios, perRatio;
+    if (typeof nOrOpts === 'object' && nOrOpts !== null) {
+      total    = nOrOpts.total;
+      ratios   = nOrOpts.ratios || [];
+      perRatio = nOrOpts.perRatio || 1;
+    } else {
+      total    = nOrOpts;
+      ratios   = [];
+      perRatio = total;
+    }
+
     // Prepend in reverse so slot 0 ends up at the top of the grid
-    for (let i = n - 1; i >= 0; i--) {
-      grid.prepend(_buildSlotCard(i, 'queued', null));
+    for (let i = total - 1; i >= 0; i--) {
+      const ratioKey   = ratios.length ? ratios[Math.floor(i / perRatio) % ratios.length] : '';
+      const rLabel     = RATIO_DISPLAY[ratioKey] || '';
+      grid.prepend(_buildSlotCard(i, 'queued', null, rLabel));
     }
     updateBoardCount(grid.querySelectorAll('.board-card').length);
   }
@@ -1354,8 +1375,39 @@ const App = (() => {
   }
 
   // ── Ratio selector ───────────────────────────────────────────
+  const RATIO_DISPLAY = { square: '1:1', portrait: '4:5', story: '9:16', landscape: '16:9' };
+
+  function toggleRatio(ratio) {
+    const selected = state.remix.selectedRatios;
+    const idx = selected.indexOf(ratio);
+    if (idx === -1) {
+      selected.push(ratio);
+    } else if (selected.length > 1) {
+      // Don't allow deselecting if it's the last one
+      selected.splice(idx, 1);
+    }
+    document.querySelectorAll('.ratio-btn').forEach(b => {
+      b.classList.toggle('active', selected.includes(b.dataset.ratio));
+    });
+    _updateRatioHint();
+  }
+
+  function _updateRatioHint() {
+    const n       = parseInt(document.getElementById('remix-volume')?.value, 10) || state.remix.outputVolume || 5;
+    const ratios  = state.remix.selectedRatios;
+    const total   = n * ratios.length;
+    const el      = document.getElementById('remix-ratio-hint');
+    if (!el) return;
+    if (ratios.length === 1) {
+      el.innerHTML = '1 ratio selected — ' + n + ' outputs';
+    } else {
+      el.innerHTML = ratios.length + ' ratios selected — ' + n + ' × ' + ratios.length + ' = <strong>' + total + '</strong> outputs';
+    }
+  }
+
+  // Legacy alias kept in case other code calls selectRatio
   function selectRatio(ratio) {
-    state.remix.aspectRatio = ratio;
+    state.remix.selectedRatios = [ratio];
     document.querySelectorAll('.ratio-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.ratio === ratio);
     });
@@ -1405,6 +1457,7 @@ const App = (() => {
     const clamped = Math.max(min, Math.min(max, value));
     if (mode === 'remix') {
       state.remix.outputVolume = clamped;
+      _updateRatioHint();
     } else {
       state.concepts.outputVolume = clamped;
       // Refresh generate-all button label if a plan exists
@@ -1650,8 +1703,6 @@ const App = (() => {
     setGeneratingBtn(btn, 'btn-remix-label', `Generating…`);
 
     setWorkspaceState(WS.GENERATING);  // switches to board tab, shows pulsing indicator
-    addGenerationSlotCards(n);
-    startGenerationProgress(n);
     _genTimer.reset();
     _genTimer.start();
 
@@ -1668,32 +1719,41 @@ const App = (() => {
       formData.append('product_asset_id',   state.remix.productAssetId);
     formData.append('instructions',       getVal('remix-instructions'));
     formData.append('avoid_instructions', state.avoidInstructions || '');
-    formData.append('aspect_ratio', state.remix.aspectRatio);
+    formData.append('aspect_ratios', JSON.stringify(state.remix.selectedRatios));
     formData.append('count',        n);
     formData.append('speed_mode',   state.speedMode);
 
+    const selectedRatios = state.remix.selectedRatios;
+    const totalSlots = n * selectedRatios.length;
     let completedCount = 0;
+
+    addGenerationSlotCards({ total: totalSlots, ratios: selectedRatios, perRatio: n });
+    startGenerationProgress(totalSlots);
 
     try {
       await streamGenerate('/generate/remix/stream', formData, (event) => {
         // ── Slot-based events (remix pipeline) ──────────────────
-        if (event.type === 'slot_processing') {
-          updateSlotCard(event.slot, 'processing', null);
+        if (event.type === 'start') {
+          // Server confirms total — already set, but update in case it differs
+          // (no-op: we set totalSlots above)
+
+        } else if (event.type === 'slot_processing') {
+          updateSlotCard(event.slot, 'processing', { ratio: event.ratio, variation: event.variation });
 
         } else if (event.type === 'slot_retrying') {
-          updateSlotCard(event.slot, 'retrying', { attempt: event.attempt });
+          updateSlotCard(event.slot, 'retrying', { attempt: event.attempt, ratio: event.ratio, variation: event.variation });
 
         } else if (event.type === 'slot_completed') {
           completedCount++;
-          updateGenerationProgress(completedCount, n);
+          updateGenerationProgress(completedCount, totalSlots);
           replaceSlotCardWithAd(event.slot, event.ad);
           state.boardAds.unshift(event.ad);
           updateBoardStats();
 
         } else if (event.type === 'slot_failed') {
           completedCount++;
-          updateGenerationProgress(completedCount, n);
-          updateSlotCard(event.slot, 'failed', { error: event.error });
+          updateGenerationProgress(completedCount, totalSlots);
+          updateSlotCard(event.slot, 'failed', { error: event.error, ratio: event.ratio, variation: event.variation });
           toast('Variation ' + (event.slot + 1) + ' failed', 'error');
 
         } else if (event.type === 'slot_scored') {
@@ -2828,6 +2888,7 @@ const App = (() => {
     initRemixDropZones();
     initBrandAssetUpload();
     _restoreAvoidFromStorage();   // restore persisted avoid rules before first render
+    _updateRatioHint();
     _loadAiCapabilities(); // non-blocking — greys out unavailable providers after fetch
     await Promise.all([loadBrands(), loadFormats()]);
   }
@@ -2882,7 +2943,7 @@ const App = (() => {
     switchWorkspaceTab,
 
     // Panel
-    switchTab, selectRatio, adjustVolume, onVolumeInput, onConceptCountInput, toggleFormat, selectSpeedMode,
+    switchTab, selectRatio, toggleRatio, adjustVolume, onVolumeInput, onConceptCountInput, toggleFormat, selectSpeedMode,
 
     // Avoid While Generating
     toggleAvoidSection, onAvoidInput, toggleAvoidChip,

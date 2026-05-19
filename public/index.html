@@ -224,18 +224,22 @@
         </div>
 
         <div class="field-group">
-          <label class="field-label">Aspect Ratio</label>
+          <label class="field-label">Aspect Ratios <span class="field-hint">Select one or more</span></label>
           <div class="ratio-selector">
-            <button class="ratio-btn active" data-ratio="square"    onclick="App.selectRatio('square')">
-              <span class="ratio-box" style="width:16px;height:16px;"></span> 1:1
+            <button class="ratio-btn active" data-ratio="square"    onclick="App.toggleRatio('square')">
+              <span class="ratio-box" style="width:15px;height:15px;"></span> 1:1
             </button>
-            <button class="ratio-btn" data-ratio="portrait"  onclick="App.selectRatio('portrait')">
-              <span class="ratio-box" style="width:12px;height:16px;"></span> 4:5
+            <button class="ratio-btn active" data-ratio="portrait"  onclick="App.toggleRatio('portrait')">
+              <span class="ratio-box" style="width:12px;height:15px;"></span> 4:5
             </button>
-            <button class="ratio-btn" data-ratio="landscape" onclick="App.selectRatio('landscape')">
-              <span class="ratio-box" style="width:20px;height:14px;"></span> 16:9
+            <button class="ratio-btn" data-ratio="story"     onclick="App.toggleRatio('story')">
+              <span class="ratio-box" style="width:9px;height:15px;"></span> 9:16
+            </button>
+            <button class="ratio-btn" data-ratio="landscape" onclick="App.toggleRatio('landscape')">
+              <span class="ratio-box" style="width:22px;height:14px;"></span> 16:9
             </button>
           </div>
+          <div class="ratio-hint" id="remix-ratio-hint">2 ratios selected — 5 × 2 = <strong>10</strong> outputs</div>
         </div>
 
         <div class="field-group">

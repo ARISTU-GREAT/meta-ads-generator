@@ -784,6 +784,11 @@ body {
 .ratio-btn:hover { border-color: var(--border-md); color: var(--text-2); }
 .ratio-btn.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); font-weight: 600; }
 .ratio-box { border: 1.5px solid currentColor; border-radius: 2px; flex-shrink: 0; }
+.ratio-hint {
+  font-size: 0.72rem;
+  color: var(--text-3);
+  margin-top: 4px;
+}
 
 /* ── Volume Input ───────────────────────────────────────────── */
 .volume-input-wrap {
@@ -1311,6 +1316,10 @@ body {
   background: var(--accent-dim);
   color: var(--accent);
   white-space: nowrap;
+}
+.board-card-ratio {
+  background: var(--surface-2);
+  color: var(--text-2);
 }
 .board-card-status {
   width: 8px; height: 8px;

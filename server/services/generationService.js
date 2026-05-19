@@ -26,6 +26,7 @@ const { getRelevantMemoriesForBrand, formatMemoryContext } = require('./brandMem
 const { buildLayoutFromStrategy, saveLayout } = require('./layoutService');
 const { scoreGeneration, selectBest } = require('./validationService');
 const { buildNegativeRulesBlock }     = require('../utils/promptUtils');
+const { isGeminiAvailable, reviewCreativeStrategy } = require('./geminiReviewerService');
 
 // Lazy-init — safe to load without OPENAI_API_KEY at startup
 let _openai = null;
@@ -37,11 +38,49 @@ function getOpenAI() {
   return _openai;
 }
 
+// ── Ratio maps ────────────────────────────────────────────────────────────────
+// Translates user-facing ratio strings ("1:1", "4:5", etc.) → internal names.
+const RATIO_ALIASES = {
+  '1:1':      'square',
+  '4:5':      'portrait',
+  '9:16':     'story',
+  '16:9':     'landscape',
+  'square':   'square',
+  'portrait': 'portrait',
+  'story':    'story',
+  'landscape':'landscape',
+};
+
+// Internal name → OpenAI size string
 const SIZE_MAP = {
   square:    '1024x1024',
   portrait:  '1024x1536',
+  story:     '1024x1536', // 9:16 — closest supported size; generated taller portrait
   landscape: '1536x1024',
 };
+
+// Internal name → display label shown in UI / metadata
+const RATIO_DISPLAY = {
+  square:   '1:1',
+  portrait: '4:5',
+  story:    '9:16',
+  landscape:'16:9',
+};
+
+// Normalize an array of ratio values (user-facing or internal) to known internal names
+function normalizeRatios(input) {
+  if (!input || !input.length) return ['square'];
+  return input
+    .map(r => RATIO_ALIASES[String(r).trim()] || null)
+    .filter(r => r && SIZE_MAP[r]);
+}
+
+// Internal ratio name → ad_format column value
+function ratioToAdFormat(ratio) {
+  if (ratio === 'portrait' || ratio === 'story') return 'story';
+  if (ratio === 'landscape') return 'landscape';
+  return 'single_image';
+}
 
 // Speed mode configuration — model and concurrency scale with quality preference
 const SPEED_CONFIGS = {
@@ -510,7 +549,8 @@ async function remixGenerateBatchStream({
   productImageMime,
   instructions,
   avoidInstructions = '',
-  aspectRatio,
+  aspectRatio,        // legacy single-ratio (backward compat)
+  aspectRatios,       // new: array of ratios ["1:1","4:5",...]
   count,
   campaignId,
   speedMode = 'balanced',
@@ -522,6 +562,17 @@ async function remixGenerateBatchStream({
   const speedCfg   = getSpeedConfig(speedMode);
   const batchStart = Date.now();
   const MAX_RETRIES = 2;
+
+  // Resolve which ratios to generate
+  let ratios;
+  if (aspectRatios && aspectRatios.length > 0) {
+    ratios = normalizeRatios(aspectRatios);
+  } else {
+    ratios = normalizeRatios([aspectRatio || 'square']);
+  }
+  if (!ratios.length) ratios = ['square'];
+
+  const totalSlots = n * ratios.length; // e.g. 5 × 3 = 15
 
   const emit = (event) => { if (onProgress) onProgress(event); };
 
@@ -545,7 +596,8 @@ async function remixGenerateBatchStream({
       openai, brand,
       referenceImagePath, referenceImageMime,
       productImagePath,   productImageMime,
-      instructions, avoidInstructions, aspectRatio,
+      instructions, avoidInstructions,
+      aspectRatio: ratios[0], // use primary ratio for strategy composition
       promptStyle: speedCfg.promptStyle,
     });
     basePrompt   = strategy.enhanced_prompt;
@@ -560,23 +612,51 @@ async function remixGenerateBatchStream({
     ? '[Image 1 = reference ad for layout/style. Image 2 = product to feature.]\n\n'
     : '';
 
-  const model    = speedCfg.model();
-  const size     = SIZE_MAP[aspectRatio] || '1024x1024';
-  const adFormat = aspectRatio === 'portrait'  ? 'story'
-                 : aspectRatio === 'landscape' ? 'landscape'
-                 : 'single_image';
-
-  // ── 3. Announce all slots as queued ──────────────────────────────────────
-  for (let i = 0; i < n; i++) {
-    emit({ type: 'slot_queued', slot: i, total: n });
+  // ── 3. Optional Gemini creative review ───────────────────────────────────
+  let geminiContext = null;
+  if (isGeminiAvailable()) {
+    try {
+      geminiContext = await reviewCreativeStrategy({ brand, strategy, ratios, instructions, avoidInstructions });
+      if (geminiContext) {
+        console.log('[generationService] Gemini creative review applied.');
+        emit({ type: 'gemini_context', providers: { reviewer: 'gemini' } });
+      }
+    } catch (geminiErr) {
+      console.warn('[generationService] Gemini reviewer failed (non-fatal):', geminiErr.message);
+    }
   }
 
-  // ── 4. Per-slot generation function (pure, throws on failure) ────────────
+  const model = speedCfg.model();
+
+  // ── 4. Announce all slots as queued ──────────────────────────────────────
+  // Slot numbering: ratioIndex * n + variationIndex
+  // e.g. n=5, ratios=['square','portrait']: slots 0-4 = square, slots 5-9 = portrait
+  for (let ri = 0; ri < ratios.length; ri++) {
+    for (let vi = 0; vi < n; vi++) {
+      const slot = ri * n + vi;
+      emit({ type: 'slot_queued', slot, total: totalSlots, ratio: ratios[ri], variation: vi });
+    }
+  }
+
+  // ── 5. Per-slot generation function (pure, throws on failure) ────────────
   async function generateSlot(slot) {
+    const ratioIndex    = Math.floor(slot / n);
+    const variationIdx  = slot % n;
+    const ratio         = ratios[ratioIndex];
+    const size          = SIZE_MAP[ratio] || '1024x1024';
+    const adFormat      = ratioToAdFormat(ratio);
+    const ratioLabel    = RATIO_DISPLAY[ratio] || ratio;
+
     const variationSuffix = n > 1
-      ? `\n\n${VARIATION_DIRECTIVES[slot % VARIATION_DIRECTIVES.length]}`
+      ? `\n\n${VARIATION_DIRECTIVES[variationIdx % VARIATION_DIRECTIVES.length]}`
       : '';
-    const prompt = imageContextHeader + basePrompt + variationSuffix
+
+    // Add ratio-specific composition note from Gemini if available
+    const ratioNote = geminiContext?.ratio_notes?.[ratio]
+      ? `\n\n[COMPOSITION FOR ${ratioLabel}]: ${geminiContext.ratio_notes[ratio]}`
+      : '';
+
+    const prompt = imageContextHeader + basePrompt + variationSuffix + ratioNote
       + buildNegativeRulesBlock(avoidInstructions) + PRODUCT_FIDELITY_SUFFIX;
 
     const [refFile, prodFile] = await Promise.all([
@@ -584,7 +664,7 @@ async function remixGenerateBatchStream({
       toFile(fs.createReadStream(productImagePath),   'product.png',   { type: productImageMime   || 'image/png' }),
     ]);
 
-    console.log('[generationService] slot', slot, '— calling OpenAI image edit:', { model, size, slot });
+    console.log('[generationService] slot', slot, '— calling OpenAI image edit:', { model, size, ratio, variationIdx });
 
     let openaiResponse;
     try {
@@ -604,22 +684,41 @@ async function remixGenerateBatchStream({
 
     const metadataPayload = {
       mode:               'remix',
+      aspect_ratio:       ratio,
+      ratio_display:      ratioLabel,
+      ratio_group_id:     batchId,
+      variation_index:    variationIdx + 1,
       composer_used:      composerUsed,
       instructions:       instructions || null,
       avoid_instructions: avoidInstructions || null,
       strategy:           strategy || null,
       batch_id:           batchId,
-      variation_index:    slot + 1,
-      variation_directive: n > 1 ? VARIATION_DIRECTIVES[slot % VARIATION_DIRECTIVES.length] : null,
+      variation_directive: n > 1 ? VARIATION_DIRECTIVES[variationIdx % VARIATION_DIRECTIVES.length] : null,
       speed_mode:         speedMode,
       image_model:        model,
+      providers: {
+        strategy:  composerUsed  ? 'openai' : 'baseline',
+        reviewer:  geminiContext  ? 'gemini' : null,
+        blueprint: 'claude',
+        image:     'openai',
+      },
     };
 
     const insertParams = [
       brandId, prompt, imageUrl, null,
       'meta', adFormat,
       composerUsed ? `gpt-4.1-mini + ${model}` : model,
-      JSON.stringify({ aspect_ratio: aspectRatio, size, mode: 'remix', batch_id: batchId, variation_index: slot + 1, composer_used: composerUsed, image_model: model, speed_mode: speedMode }),
+      JSON.stringify({
+        aspect_ratio:    ratio,
+        ratio_display:   ratioLabel,
+        size,
+        mode:            'remix',
+        batch_id:        batchId,
+        variation_index: variationIdx + 1,
+        composer_used:   composerUsed,
+        image_model:     model,
+        speed_mode:      speedMode,
+      }),
       'draft',
       JSON.stringify(metadataPayload),
     ];
@@ -646,51 +745,49 @@ async function remixGenerateBatchStream({
 
     // Layout save — non-blocking, never fails the pipeline
     try {
-      const layoutJson = buildLayoutFromStrategy(strategy, brand, aspectRatio, streamAd.id);
+      const layoutJson = buildLayoutFromStrategy(strategy, brand, ratio, streamAd.id);
       await saveLayout(streamAd.id, layoutJson);
     } catch (layoutErr) {
       console.warn('[layoutService] stream layout save failed for ad', streamAd.id, ':', layoutErr.message);
     }
 
-    return { ad: streamAd, imageUrl, variationIndex: slot + 1, b64 };
+    return { ad: streamAd, imageUrl, variationIndex: variationIdx + 1, ratio, b64 };
   }
 
-  // ── 5. Concurrent slot workers with retry + exponential backoff ──────────
-  const slotResults = new Array(n).fill(null);
+  // ── 6. Concurrent slot workers with retry + exponential backoff ──────────
+  const slotResults = new Array(totalSlots).fill(null);
   let nextSlot = 0;
 
   async function slotWorker() {
-    while (nextSlot < n) {
+    while (nextSlot < totalSlots) {
       const slot = nextSlot++;
-      let lastErr = null;
+      const ratioIndex   = Math.floor(slot / n);
+      const variationIdx = slot % n;
+      const ratio        = ratios[ratioIndex];
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         if (attempt === 0) {
-          emit({ type: 'slot_processing', slot });
+          emit({ type: 'slot_processing', slot, ratio, variation: variationIdx });
         } else {
-          const delayMs = Math.pow(2, attempt - 1) * 2000; // 2 s, 4 s
-          emit({ type: 'slot_retrying', slot, attempt, delay_ms: delayMs });
+          const delayMs = Math.pow(2, attempt - 1) * 2000;
+          emit({ type: 'slot_retrying', slot, attempt, delay_ms: delayMs, ratio, variation: variationIdx });
           await sleep(delayMs);
         }
 
         try {
-          const result    = await generateSlot(slot);
+          const result      = await generateSlot(slot);
           slotResults[slot] = result;
 
-          // Slot-based event (remix UI)
-          emit({ type: 'slot_completed', slot, ad: result.ad, imageUrl: result.imageUrl, variationIndex: result.variationIndex });
-          // Legacy event (concepts UI backward compat)
+          emit({ type: 'slot_completed', slot, ad: result.ad, imageUrl: result.imageUrl, variationIndex: result.variationIndex, ratio: result.ratio });
           emit({ type: 'progress', success: true, ad: result.ad, imageUrl: result.imageUrl, variationIndex: result.variationIndex });
-          break; // success — exit retry loop
+          break;
         } catch (err) {
-          lastErr = err;
-          console.warn(`[generationService] slot ${slot} attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${err.message}`);
+          console.warn(`[generationService] slot ${slot} (ratio=${ratio}) attempt ${attempt + 1}/${MAX_RETRIES + 1} failed: ${err.message}`);
 
           if (attempt === MAX_RETRIES) {
             slotResults[slot] = { failed: true, error: err.message || String(err), attempts: attempt + 1 };
-            emit({ type: 'slot_failed', slot, error: slotResults[slot].error, attempts: attempt + 1 });
-            // Legacy event
-            emit({ type: 'progress', success: false, variationIndex: slot + 1, error: slotResults[slot].error });
+            emit({ type: 'slot_failed', slot, error: slotResults[slot].error, attempts: attempt + 1, ratio, variation: variationIdx });
+            emit({ type: 'progress', success: false, variationIndex: variationIdx + 1, error: slotResults[slot].error });
           }
         }
       }
@@ -698,10 +795,10 @@ async function remixGenerateBatchStream({
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(speedCfg.concurrency, n) }, () => slotWorker())
+    Array.from({ length: Math.min(speedCfg.concurrency, totalSlots) }, () => slotWorker())
   );
 
-  // ── 6. Post-generation scoring (concurrent, non-blocking to stream) ───────
+  // ── 7. Post-generation scoring (concurrent, non-blocking to stream) ───────
   const validSlots = slotResults
     .map((r, i) => r && !r.failed ? { slot: i, ad: r.ad, b64: r.b64 } : null)
     .filter(Boolean);
@@ -735,7 +832,7 @@ async function remixGenerateBatchStream({
     }
   }
 
-  // ── 7. Summary ────────────────────────────────────────────────────────────
+  // ── 8. Summary ────────────────────────────────────────────────────────────
   const creativeStrategy = strategy
     ? {
         composerUsed,
@@ -755,15 +852,17 @@ async function remixGenerateBatchStream({
   return {
     batch_id:                       batchId,
     count:                          n,
+    ratios,
+    total_slots:                    totalSlots,
     speed_mode:                     speedMode,
     actual_generation_time_seconds: (Date.now() - batchStart) / 1000,
     results: slotResults.map((r, i) =>
       r && r.failed
-        ? { success: false, variationIndex: i + 1, error: r.error }
-        : { success: true, ad: r.ad, imageUrl: r.imageUrl, variationIndex: r.variationIndex }
+        ? { success: false, variationIndex: Math.floor(i / n) + 1, ratio: ratios[Math.floor(i / n)], error: r.error }
+        : { success: true, ad: r.ad, imageUrl: r.imageUrl, variationIndex: r.variationIndex, ratio: r.ratio }
     ),
     creativeStrategy,
   };
 }
 
-module.exports = { remixGenerate, remixGenerateBatch, remixGenerateBatchStream };
+module.exports = { remixGenerate, remixGenerateBatch, remixGenerateBatchStream, RATIO_ALIASES, RATIO_DISPLAY, normalizeRatios };

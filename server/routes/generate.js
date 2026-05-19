@@ -8,6 +8,7 @@ const { isBrandSetupComplete }     = require('../utils/brandKit');
 const { TEMP_DIR }                 = require('../utils/paths');
 const { query }                    = require('../db');
 const generationService            = require('../services/generationService');
+const { normalizeRatios }          = require('../services/generationService');
 const { resolveImage }             = require('../utils/assetResolver');
 const { logEvent }                 = require('../services/auditService');
 
@@ -106,12 +107,30 @@ router.post(
       }
     };
 
-    const { brand_id, instructions, aspect_ratio, count, campaign_id, speed_mode,
+    const { brand_id, instructions, aspect_ratio, aspect_ratios: aspect_ratios_raw,
+            count, campaign_id, speed_mode,
             reference_asset_id, product_asset_id, avoid_instructions } = req.body;
     const n = parseInt(count, 10) || 5;
 
+    // Parse aspect_ratios — accepts JSON array string or comma-separated values.
+    // Falls back to single aspect_ratio for backward compat.
+    let ratioList;
+    if (aspect_ratios_raw) {
+      try {
+        const parsed = typeof aspect_ratios_raw === 'string' ? JSON.parse(aspect_ratios_raw) : aspect_ratios_raw;
+        ratioList = normalizeRatios(Array.isArray(parsed) ? parsed : [parsed]);
+      } catch {
+        ratioList = normalizeRatios(String(aspect_ratios_raw).split(',').map(r => r.trim()));
+      }
+    } else {
+      ratioList = normalizeRatios([aspect_ratio || 'square']);
+    }
+    if (!ratioList.length) ratioList = ['square'];
+
+    const totalSlots = n * ratioList.length;
+
     console.log('[generate/stream] incoming request:', {
-      brand_id, campaign_id, aspect_ratio, count: n, speed_mode,
+      brand_id, campaign_id, aspect_ratio, ratios: ratioList, count: n, total: totalSlots, speed_mode,
       has_reference_file:  !!(req.files?.reference_image?.[0]),
       has_product_file:    !!(req.files?.product_image?.[0]),
       reference_asset_id:  reference_asset_id || null,
@@ -125,6 +144,10 @@ router.post(
     }
     if (n < 1 || n > 20) {
       sendEvent({ type: 'error', message: 'count must be between 1 and 20 per request' });
+      return res.end();
+    }
+    if (totalSlots > 60) {
+      sendEvent({ type: 'error', message: 'Too many outputs requested (max 60 total: count × ratios)' });
       return res.end();
     }
 
@@ -168,10 +191,10 @@ router.post(
     }
 
     console.log('[generate/stream] images resolved — starting generation. ref:', refResolved.path, '| prod:', prodResolved.path);
-    sendEvent({ type: 'start', count: n });
+    sendEvent({ type: 'start', count: n, total: totalSlots, ratios: ratioList });
 
     try {
-      logEvent(req, { event_type: 'ad_generation_started', brand_id: brand_id, campaign_id: campaign_id || null, message: 'Generation started: ' + n + ' images' }).catch(() => {});
+      logEvent(req, { event_type: 'ad_generation_started', brand_id: brand_id, campaign_id: campaign_id || null, message: `Generation started: ${n} variations × ${ratioList.length} ratio(s) = ${totalSlots} total` }).catch(() => {});
       const result = await generationService.remixGenerateBatchStream({
         brandId:            brand_id,
         referenceImagePath: refResolved.path,
@@ -180,7 +203,7 @@ router.post(
         productImageMime:   prodResolved.mime,
         instructions:       instructions || '',
         avoidInstructions:  avoid_instructions || '',
-        aspectRatio:        aspect_ratio || 'square',
+        aspectRatios:       ratioList,
         count:              n,
         campaignId:         campaign_id  || null,
         speedMode:          speed_mode   || 'balanced',
@@ -191,6 +214,8 @@ router.post(
         type:             'done',
         batch_id:         result.batch_id,
         count:            n,
+        total:            result.total_slots || n,
+        ratios:           result.ratios || ratioList,
         speed_mode:       result.speed_mode,
         generation_time:  result.actual_generation_time_seconds,
         creativeStrategy: result.creativeStrategy,
