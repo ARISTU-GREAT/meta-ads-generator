@@ -270,7 +270,15 @@ const App = (() => {
         throw new Error('Session expired. Please sign in again.');
       }
     }
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    if (!r.ok) {
+      let errMsg = `HTTP ${r.status}`;
+      try {
+        const body = await r.json();
+        const detail = body.error || body.message || '';
+        if (detail) errMsg = `[${r.status}] ${detail}`;
+      } catch {}
+      throw new Error(errMsg);
+    }
     return r.json();
   }
 
@@ -314,7 +322,24 @@ const App = (() => {
     el.className = `toast ${type}`;
     el.textContent = msg;
     c.appendChild(el);
-    setTimeout(() => el.remove(), 3800);
+    setTimeout(() => el.remove(), type === 'error' ? 6000 : 3800);
+  }
+
+  function toastWithRetry(msg, onRetry) {
+    const c   = document.getElementById('toast-container');
+    const el  = document.createElement('div');
+    el.className = 'toast error toast-retryable';
+    const msgEl = document.createElement('span');
+    msgEl.textContent = msg;
+    const btn = document.createElement('button');
+    btn.className   = 'toast-retry-btn';
+    btn.textContent = 'Retry';
+    btn.onclick = () => { el.remove(); onRetry(); };
+    el.appendChild(msgEl);
+    el.appendChild(btn);
+    c.appendChild(el);
+    const timer = setTimeout(() => el.remove(), 9000);
+    btn.addEventListener('click', () => clearTimeout(timer));
   }
 
   // ── Brand Kit Completeness ───────────────────────────────────
@@ -1863,7 +1888,8 @@ const App = (() => {
       setWorkspaceState(WS.PLANNING);  // switches to plan tab, shows concept cards
       toast(`${state.concepts.plan.length} concepts planned`);
     } catch (e) {
-      toast('Concept planning failed: ' + e.message, 'error');
+      const msg = e.message || 'Unknown error';
+      toastWithRetry('Concept planning failed: ' + msg, generateConceptPlan);
     } finally {
       resetBtn(btn, 'btn-concept-plan-label', 'Preview Concept Plan');
     }

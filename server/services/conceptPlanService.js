@@ -8,6 +8,9 @@ const formatsData = JSON.parse(
 );
 
 function toDataURL(filePath, mimeType) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new Error(`Product image file not found at path: ${filePath}`);
+  }
   const b64 = fs.readFileSync(filePath).toString('base64');
   return `data:${mimeType || 'image/jpeg'};base64,${b64}`;
 }
@@ -91,32 +94,77 @@ Return a JSON object with a single key "concepts" containing an array of exactly
   ]
 }`;
 
-  const messageContent = productImagePath
-    ? [
-        { type: 'image_url', image_url: { url: toDataURL(productImagePath, productImageMime), detail: 'high' } },
-        { type: 'text', text: systemPrompt },
-      ]
-    : [{ type: 'text', text: systemPrompt }];
+  // Build message content — include product image if available
+  let messageContent;
+  if (productImagePath) {
+    let imageDataUrl;
+    try {
+      imageDataUrl = toDataURL(productImagePath, productImageMime);
+    } catch (err) {
+      console.warn('[conceptPlanService] product image unavailable, proceeding without it:', err.message);
+      imageDataUrl = null;
+    }
+    messageContent = imageDataUrl
+      ? [
+          { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } },
+          { type: 'text', text: systemPrompt },
+        ]
+      : [{ type: 'text', text: systemPrompt }];
+  } else {
+    messageContent = [{ type: 'text', text: systemPrompt }];
+  }
 
-  const response = await openai.chat.completions.create({
-    model:           PROMPT_MODEL(),
-    response_format: { type: 'json_object' },
-    max_tokens:      3000,
-    messages: [{ role: 'user', content: messageContent }],
-  });
+  const model = PROMPT_MODEL();
+  console.log('[conceptPlanService] calling OpenAI', { model, n, hasImage: !!productImagePath, promptLength: systemPrompt.length });
 
-  const content = response.choices[0].message.content;
+  let response;
+  try {
+    response = await openai.chat.completions.create({
+      model,
+      response_format: { type: 'json_object' },
+      max_tokens:      3000,
+      messages: [{ role: 'user', content: messageContent }],
+    });
+  } catch (err) {
+    // Enrich OpenAI SDK errors with their HTTP status when available
+    const status = err.status || err.statusCode;
+    const detail = err.error?.message || err.message || 'OpenAI request failed';
+    throw new Error(status ? `OpenAI API error ${status}: ${detail}` : detail);
+  }
+
+  const content = response?.choices?.[0]?.message?.content;
+  if (!content) {
+    const finishReason = response?.choices?.[0]?.finish_reason;
+    throw new Error(
+      finishReason === 'length'
+        ? 'OpenAI response was cut off (max_tokens reached). Try fewer concepts.'
+        : `OpenAI returned empty content (finish_reason: ${finishReason || 'unknown'})`
+    );
+  }
+
   const cleaned = content.trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/```\s*$/i, '')
     .trim();
-  const parsed = JSON.parse(cleaned);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    console.error('[conceptPlanService] JSON parse failed. Raw content snippet:', cleaned.slice(0, 200));
+    throw new Error(`Could not parse OpenAI response as JSON: ${err.message}`);
+  }
 
   // Normalize: handle both {concepts:[...]} and plain array
   const concepts = Array.isArray(parsed)
     ? parsed
     : (parsed.concepts || parsed.items || Object.values(parsed).find(v => Array.isArray(v)) || []);
 
+  if (!Array.isArray(concepts) || concepts.length === 0) {
+    throw new Error('OpenAI returned no concepts. The response may have been malformed.');
+  }
+
+  console.log('[conceptPlanService] parsed', { concepts: concepts.length });
   return concepts.slice(0, n);
 }
 
