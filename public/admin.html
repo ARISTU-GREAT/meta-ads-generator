@@ -272,6 +272,11 @@ td.td-num  { text-align: right; font-variant-numeric: tabular-nums; color: var(-
         <span class="nav-icon">🖼</span> Generations
       </button>
 
+      <div class="nav-section-label">Access</div>
+      <button class="nav-item" data-section="invites" onclick="navigate('invites')">
+        <span class="nav-icon">✉</span> Invites
+      </button>
+
       <div class="nav-section-label">Monitoring</div>
       <button class="nav-item" data-section="audit" onclick="navigate('audit')">
         <span class="nav-icon">📋</span> Activity Log
@@ -344,6 +349,7 @@ function loadSection(section) {
     brands:      loadBrands,
     campaigns:   loadCampaigns,
     generations: loadGenerations,
+    invites:     loadInvites,
     audit:       loadAudit,
     system:      loadSystem,
   };
@@ -494,15 +500,26 @@ async function loadUsers() {
       '<div class="section-header">' +
         '<div><div class="section-title">Users</div>' +
         '<div class="section-subtitle">' + rows.length + ' registered</div></div>' +
-        '<div class="section-actions"><button class="refresh-btn" onclick="navigate(\'users\')">↺ Refresh</button></div>' +
+        '<div class="section-actions">' +
+          '<button class="refresh-btn" onclick="showDebugEmail()">🔍 Debug email</button>' +
+          '<button class="refresh-btn" onclick="navigate(\'users\')">↺ Refresh</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="debug-email-wrap" class="hidden" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px;margin-bottom:14px">' +
+        '<div style="font-size:0.8rem;font-weight:600;margin-bottom:8px">Debug Email Lookup</div>' +
+        '<div style="display:flex;gap:8px;align-items:flex-end">' +
+          '<input id="debug-email-input" class="search-input" style="flex:1;min-width:240px" placeholder="user@example.com" />' +
+          '<button class="refresh-btn" onclick="runDebugEmail()">Look up</button>' +
+        '</div>' +
+        '<pre id="debug-email-result" style="margin-top:10px;font-size:0.72rem;background:var(--surface-2);padding:10px;border-radius:var(--r-sm);overflow:auto;max-height:200px;display:none"></pre>' +
       '</div>' +
       '<div class="table-wrap">' +
         '<div class="table-toolbar">' +
           '<input class="search-input" id="user-search" placeholder="Search email…" oninput="filterTable(\'users-tbody\',this.value)">' +
-          '<span class="table-count" id="user-count">' + rows.length + ' users</span>' +
+          '<span class="table-count" id="user-count">' + rows.length + ' registered users</span>' +
         '</div>' +
         '<table><thead><tr>' +
-          '<th>Email</th><th>Role</th><th>Last Login</th><th>Gens Started</th><th>Created</th>' +
+          '<th>Email</th><th>Role</th><th>Last Login</th><th>Gens</th><th>Created</th>' +
         '</tr></thead>' +
         '<tbody id="users-tbody">' +
           (rows.length
@@ -510,16 +527,166 @@ async function loadUsers() {
                 '<tr data-search="' + esc(u.email) + '">' +
                   '<td class="td-name">' + esc(u.email) + '</td>' +
                   '<td>' + statusBadge(u.role) + '</td>' +
-                  '<td>' + fmtDate(u.last_login_at) + '</td>' +
+                  '<td style="font-size:0.72rem">' + fmtDate(u.last_login_at) + '</td>' +
                   '<td class="td-num">' + num(u.generation_count) + '</td>' +
-                  '<td>' + fmtDate(u.created_at) + '</td>' +
+                  '<td style="font-size:0.72rem">' + fmtDate(u.created_at) + '</td>' +
                 '</tr>'
               ).join('')
-            : '<tr><td colspan="5" class="empty-state">No users found</td></tr>'
+            : '<tr><td colspan="5" class="empty-state">No users found. Check the debug tool above if you expected a user to appear.</td></tr>'
           ) +
         '</tbody></table>' +
       '</div>';
   } catch (err) { errorState(err); }
+}
+
+function showDebugEmail() {
+  const wrap = document.getElementById('debug-email-wrap');
+  if (wrap) { wrap.classList.toggle('hidden'); document.getElementById('debug-email-input')?.focus(); }
+}
+
+async function runDebugEmail() {
+  const email = document.getElementById('debug-email-input')?.value.trim();
+  const resultEl = document.getElementById('debug-email-result');
+  if (!email || !resultEl) return;
+  resultEl.textContent = 'Looking up…';
+  resultEl.style.display = 'block';
+  try {
+    const res = await fetch('/api/admin/debug-email?email=' + encodeURIComponent(email), { credentials: 'include' });
+    const data = await res.json();
+    resultEl.textContent = JSON.stringify(data.data, null, 2);
+  } catch (err) {
+    resultEl.textContent = 'Error: ' + err.message;
+  }
+}
+
+// ── Invites ─────────────────────────────────────────────────────
+async function loadInvites() {
+  try {
+    const r = await api('/invites');
+    const rows = r.data || [];
+    const pending  = rows.filter(i => i.status === 'pending');
+    const accepted = rows.filter(i => i.status === 'accepted');
+    const revoked  = rows.filter(i => i.status === 'revoked' || i.status === 'expired');
+
+    document.getElementById('admin-main').innerHTML =
+      '<div class="section-header">' +
+        '<div><div class="section-title">Invites</div>' +
+        '<div class="section-subtitle">' + pending.length + ' pending, ' + accepted.length + ' accepted</div></div>' +
+        '<div class="section-actions">' +
+          '<button class="refresh-btn" onclick="navigate(\'invites\')">↺ Refresh</button>' +
+          '<button class="refresh-btn" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="showCreateInvite()">+ New Invite</button>' +
+        '</div>' +
+      '</div>' +
+
+      '<div id="invite-form-wrap" class="hidden" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;margin-bottom:16px">' +
+        '<div style="font-size:0.82rem;font-weight:600;margin-bottom:10px">Create Invite</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
+          '<div style="flex:1;min-width:200px">' +
+            '<label style="font-size:0.72rem;color:var(--text-3);display:block;margin-bottom:4px">Email</label>' +
+            '<input id="invite-email" class="search-input" style="width:100%" placeholder="user@example.com" />' +
+          '</div>' +
+          '<div>' +
+            '<label style="font-size:0.72rem;color:var(--text-3);display:block;margin-bottom:4px">Role</label>' +
+            '<select id="invite-role" class="filter-select"><option value="admin">admin</option></select>' +
+          '</div>' +
+          '<button class="refresh-btn" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="submitCreateInvite()">Send Invite</button>' +
+          '<button class="refresh-btn" onclick="document.getElementById(\'invite-form-wrap\').classList.add(\'hidden\')">Cancel</button>' +
+        '</div>' +
+        '<div id="invite-form-error" class="hidden" style="color:var(--danger);font-size:0.75rem;margin-top:8px"></div>' +
+      '</div>' +
+
+      '<div class="table-wrap">' +
+        '<div class="table-toolbar">' +
+          '<input class="search-input" placeholder="Search email…" oninput="filterTable(\'invites-tbody\',this.value)">' +
+          '<select class="filter-select" onchange="filterByAttr(\'invites-tbody\',\'data-status\',this.value)">' +
+            '<option value="">All statuses</option><option>pending</option><option>accepted</option><option>revoked</option>' +
+          '</select>' +
+          '<span class="table-count">' + rows.length + ' invites</span>' +
+        '</div>' +
+        '<table><thead><tr>' +
+          '<th>Email</th><th>Role</th><th>Status</th><th>Created By</th><th>Expires</th><th>Accepted</th><th>Token</th><th></th>' +
+        '</tr></thead>' +
+        '<tbody id="invites-tbody">' +
+          (rows.length
+            ? rows.map(inv =>
+                '<tr data-search="' + esc(inv.email) + '" data-status="' + esc(inv.status) + '">' +
+                  '<td class="td-name">' + esc(inv.email) + '</td>' +
+                  '<td>' + statusBadge(inv.role) + '</td>' +
+                  '<td>' + inviteStatusBadge(inv.status) + '</td>' +
+                  '<td class="td-truncate" style="max-width:140px">' + esc(inv.created_by || '—') + '</td>' +
+                  '<td style="font-size:0.72rem">' + fmtDate(inv.expires_at) + '</td>' +
+                  '<td style="font-size:0.72rem">' + (inv.accepted_at ? fmtDate(inv.accepted_at) : '—') + '</td>' +
+                  '<td>' +
+                    (inv.status === 'pending'
+                      ? '<code style="font-size:0.65rem;color:var(--accent);cursor:pointer" title="Click to copy" onclick="copyToken(\'' + esc(inv.token) + '\')">' +
+                          inv.token.slice(0,12) + '…' +
+                        '</code>'
+                      : '<span style="color:var(--text-3);font-size:0.72rem">—</span>'
+                    ) +
+                  '</td>' +
+                  '<td>' +
+                    (inv.status === 'pending'
+                      ? '<button class="refresh-btn" style="color:var(--danger);border-color:var(--danger);padding:3px 8px;font-size:0.72rem" onclick="revokeInvite(\'' + inv.id + '\')">Revoke</button>'
+                      : '') +
+                  '</td>' +
+                '</tr>'
+              ).join('')
+            : '<tr><td colspan="8" class="empty-state">No invites yet. Use "+ New Invite" to create one.</td></tr>'
+          ) +
+        '</tbody></table>' +
+      '</div>';
+  } catch (err) { errorState(err); }
+}
+
+function inviteStatusBadge(s) {
+  const map = { pending: 'badge-warning', accepted: 'badge-success', revoked: 'badge-neutral', expired: 'badge-danger' };
+  return '<span class="badge ' + (map[s] || 'badge-neutral') + '">' + esc(s) + '</span>';
+}
+
+function showCreateInvite() {
+  document.getElementById('invite-form-wrap').classList.remove('hidden');
+  document.getElementById('invite-email').focus();
+}
+
+async function submitCreateInvite() {
+  const email = document.getElementById('invite-email').value.trim();
+  const role  = document.getElementById('invite-role').value;
+  const errEl = document.getElementById('invite-form-error');
+  errEl.classList.add('hidden');
+  if (!email) { errEl.textContent = 'Email is required'; errEl.classList.remove('hidden'); return; }
+
+  try {
+    const res = await fetch('/api/admin/invites', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to create invite');
+    // Show the token before reloading
+    const token = data.data?.token;
+    if (token) {
+      await navigator.clipboard.writeText(token).catch(() => {});
+      alert('Invite created!\n\nToken (copied to clipboard):\n' + token + '\n\nShare this token with the user. It expires in 7 days.');
+    }
+    navigate('invites');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+async function revokeInvite(id) {
+  if (!confirm('Revoke this invite?')) return;
+  try {
+    const res = await fetch('/api/admin/invites/' + id, { method: 'DELETE', credentials: 'include' });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
+    navigate('invites');
+  } catch (err) { alert('Error: ' + err.message); }
+}
+
+function copyToken(token) {
+  navigator.clipboard.writeText(token).then(() => alert('Token copied to clipboard:\n\n' + token)).catch(() => alert('Token:\n\n' + token));
 }
 
 // ── Brands ─────────────────────────────────────────────────────

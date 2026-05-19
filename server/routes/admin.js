@@ -261,12 +261,109 @@ router.get('/system', asyncHandler(async (_req, res) => {
   });
 }));
 
+// ── GET /api/admin/debug-email ────────────────────────────────
+// Diagnostic: look up a specific email in users and admin_invites.
+router.get('/debug-email', asyncHandler(async (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ success: false, error: 'email query param required' });
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const [userRows, inviteRows] = await Promise.all([
+    safeQuery(
+      'SELECT id, email, role, created_at FROM users WHERE lower(email) = $1',
+      [normalizedEmail],
+      []
+    ),
+    safeQuery(
+      `SELECT id, email, role, status, created_by, created_at, expires_at, accepted_at
+       FROM admin_invites WHERE lower(email) = $1 ORDER BY created_at DESC LIMIT 5`,
+      [normalizedEmail],
+      []
+    ),
+  ]);
+
+  res.json({
+    success: true,
+    data: {
+      normalizedEmail,
+      userFound:   userRows.length > 0,
+      user:        userRows[0] || null,
+      inviteFound: inviteRows.length > 0,
+      invite:      inviteRows[0] || null,
+      allInvites:  inviteRows,
+    },
+  });
+}));
+
+// ── GET /api/admin/invites ────────────────────────────────────
+router.get('/invites', asyncHandler(async (_req, res) => {
+  const rows = await safeQuery(
+    `SELECT id, email, role, status, created_by, created_at, expires_at, accepted_at,
+            token
+     FROM admin_invites ORDER BY created_at DESC`,
+    [],
+    []
+  );
+  res.json({ success: true, data: rows });
+}));
+
+// ── POST /api/admin/invites ───────────────────────────────────
+// Create an invite for an email. Returns the token (share manually).
+router.post('/invites', asyncHandler(async (req, res) => {
+  const { email, role = 'admin' } = req.body;
+  if (!email) throw new Error('email is required');
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const createdBy = req.session?.email || null;
+
+  // Check user doesn't already exist
+  const { rows: existingUser } = await query(
+    'SELECT id FROM users WHERE lower(email) = $1',
+    [normalizedEmail]
+  );
+  if (existingUser.length) {
+    return res.status(409).json({ success: false, error: 'User already has an account.' });
+  }
+
+  // Revoke any existing pending invites for this email
+  await query(
+    `UPDATE admin_invites SET status = 'revoked' WHERE lower(email) = $1 AND status = 'pending'`,
+    [normalizedEmail]
+  ).catch(() => {});
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const { rows } = await query(
+    `INSERT INTO admin_invites (email, token, role, created_by, expires_at)
+     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '7 days')
+     RETURNING id, email, role, token, status, created_at, expires_at`,
+    [normalizedEmail, token, role, createdBy]
+  );
+
+  logEvent(req, {
+    event_type: 'invite_created',
+    message: `Invite created for ${normalizedEmail} by ${createdBy}`,
+  }).catch(() => {});
+
+  res.status(201).json({ success: true, data: rows[0] });
+}));
+
+// ── DELETE /api/admin/invites/:id ────────────────────────────
+router.delete('/invites/:id', asyncHandler(async (req, res) => {
+  await query(
+    `UPDATE admin_invites SET status = 'revoked' WHERE id = $1`,
+    [req.params.id]
+  );
+  logEvent(req, { event_type: 'invite_revoked', message: `Invite ${req.params.id} revoked` }).catch(() => {});
+  res.json({ success: true });
+}));
+
 // ── GET /api/admin/debug ──────────────────────────────────────
 // Diagnostic endpoint: confirms auth, lists tables and row counts.
 // Returns env flags only — no secret values.
 router.get('/debug', asyncHandler(async (req, res) => {
   const tables = [
-    'users', 'brands', 'brand_assets', 'campaigns',
+    'users', 'admin_invites', 'brands', 'brand_assets', 'campaigns',
     'generated_ads', 'audit_events', 'creative_memories',
     'creative_layouts', 'session',
   ];
