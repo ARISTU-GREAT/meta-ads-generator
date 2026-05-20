@@ -677,6 +677,24 @@
   </div>
 </div>
 
+<!-- ── DELETE CAMPAIGN CONFIRM MODAL ─────────────────────────── -->
+<div class="modal-overlay hidden" id="modal-delete-campaign">
+  <div class="modal modal-sm" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2 class="modal-title">Delete Campaign</h2>
+      <button class="modal-close" onclick="App.closeModal('modal-delete-campaign')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-confirm-text">Delete <strong id="delete-campaign-modal-name"></strong>?</p>
+      <p class="modal-confirm-sub">This cannot be undone. Generated ads will be kept but unlinked from this campaign.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="App.closeModal('modal-delete-campaign')">Cancel</button>
+      <button class="btn-danger" id="btn-confirm-delete-campaign">Delete Campaign</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── NEW BRAND MODAL ─────────────────────────────────────────── -->
 <div class="modal-overlay hidden" id="modal-new-brand">
   <div class="modal" onclick="event.stopPropagation()">

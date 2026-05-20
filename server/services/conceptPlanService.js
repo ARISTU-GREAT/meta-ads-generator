@@ -20,8 +20,9 @@ async function generateConceptPlan({
   openai,
   brand,
   personas,
-  productImagePath,
+  productImagePath,     // path to a temp file (uploaded image)
   productImageMime,
+  productImageDataUrl,  // pre-built base64 data URL (asset from DB — skips file I/O)
   strategy,
   conceptCount,
   aspectRatio,
@@ -95,27 +96,27 @@ Return a JSON object with a single key "concepts" containing an array of exactly
 }`;
 
   // Build message content — include product image if available
-  let messageContent;
-  if (productImagePath) {
-    let imageDataUrl;
+  // productImageDataUrl (from DB asset) takes priority over productImagePath (temp file).
+  let imageDataUrl = null;
+  if (productImageDataUrl) {
+    imageDataUrl = productImageDataUrl; // already a data URL, no file I/O needed
+  } else if (productImagePath) {
     try {
       imageDataUrl = toDataURL(productImagePath, productImageMime);
     } catch (err) {
-      console.warn('[conceptPlanService] product image unavailable, proceeding without it:', err.message);
-      imageDataUrl = null;
+      console.warn('[conceptPlanService] product image file unavailable, proceeding without it:', err.message);
     }
-    messageContent = imageDataUrl
-      ? [
-          { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } },
-          { type: 'text', text: systemPrompt },
-        ]
-      : [{ type: 'text', text: systemPrompt }];
-  } else {
-    messageContent = [{ type: 'text', text: systemPrompt }];
   }
 
+  const messageContent = imageDataUrl
+    ? [
+        { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } },
+        { type: 'text', text: systemPrompt },
+      ]
+    : [{ type: 'text', text: systemPrompt }];
+
   const model = PROMPT_MODEL();
-  console.log('[conceptPlanService] calling OpenAI', { model, n, hasImage: !!productImagePath, promptLength: systemPrompt.length });
+  console.log('[conceptPlanService] calling OpenAI', { model, n, hasImage: !!imageDataUrl, promptLength: systemPrompt.length });
 
   let response;
   try {

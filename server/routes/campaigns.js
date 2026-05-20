@@ -68,4 +68,23 @@ router.put('/:id', asyncHandler(async (req, res) => {
   res.json({ success: true, data: rows[0] });
 }));
 
+// DELETE /api/campaigns/:id
+// Removes the campaign. generated_ads.campaign_id is SET NULL by FK constraint.
+router.delete('/:id', asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    `DELETE FROM campaigns WHERE id = $1 RETURNING id, name, brand_id`,
+    [req.params.id]
+  );
+  if (!rows.length) throw new AppError('Campaign not found', 404);
+  const deleted = rows[0];
+  logEvent(req, {
+    event_type:  'campaign_deleted',
+    entity_type: 'campaign',
+    entity_id:   deleted.id,
+    brand_id:    deleted.brand_id,
+    message:     `Campaign deleted: ${deleted.name}`,
+  }).catch(() => {});
+  res.json({ success: true, id: deleted.id });
+}));
+
 module.exports = router;

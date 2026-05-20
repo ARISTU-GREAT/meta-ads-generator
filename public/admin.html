@@ -147,6 +147,9 @@ td.td-name { color: var(--text); font-weight: 500; }
 td.td-mono { font-family: monospace; font-size: 0.72rem; color: var(--text-3); }
 td.td-num  { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
 .td-truncate { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tbl-action-btn { padding: 3px 10px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; cursor: pointer; border: 1px solid; }
+.tbl-delete-btn { border-color: var(--danger, #ef4444); color: var(--danger, #ef4444); background: transparent; }
+.tbl-delete-btn:hover { background: rgba(239,68,68,0.08); }
 
 /* ── Badges ── */
 .badge {
@@ -751,7 +754,7 @@ async function loadCampaigns() {
           '<span class="table-count">' + rows.length + ' campaigns</span>' +
         '</div>' +
         '<table><thead><tr>' +
-          '<th>Campaign</th><th>Brand</th><th>Mode</th><th>Status</th><th>Ads</th><th>Created</th>' +
+          '<th>Campaign</th><th>Brand</th><th>Mode</th><th>Status</th><th>Ads</th><th>Created</th><th></th>' +
         '</tr></thead>' +
         '<tbody id="campaigns-tbody">' +
           (rows.length
@@ -763,13 +766,29 @@ async function loadCampaigns() {
                   '<td>' + statusBadge(c.status) + '</td>' +
                   '<td class="td-num">' + num(c.ad_count) + '</td>' +
                   '<td>' + fmtDate(c.created_at) + '</td>' +
+                  '<td><button class="tbl-action-btn tbl-delete-btn" onclick="adminDeleteCampaign(\'' + c.id + '\',\'' + esc(c.name) + '\')">Delete</button></td>' +
                 '</tr>'
               ).join('')
-            : '<tr><td colspan="6" class="empty-state">No campaigns yet</td></tr>'
+            : '<tr><td colspan="7" class="empty-state">No campaigns yet</td></tr>'
           ) +
         '</tbody></table>' +
       '</div>';
   } catch (err) { errorState(err); }
+}
+
+async function adminDeleteCampaign(id, name) {
+  if (!confirm(`Delete campaign "${name}"?\n\nThis cannot be undone. Generated ads will be kept but unlinked.`)) return;
+  try {
+    const res = await fetch(`/api/campaigns/${id}`, { method: 'DELETE', credentials: 'include' });
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { const d = await res.json(); if (d && d.error) msg = d.error; } catch {}
+      throw new Error(msg);
+    }
+    navigate('campaigns'); // refresh table
+  } catch (err) {
+    alert('Delete failed: ' + (err.message || 'Unknown error'));
+  }
 }
 
 // ── Generations ────────────────────────────────────────────────

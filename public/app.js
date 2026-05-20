@@ -694,6 +694,8 @@ const App = (() => {
            onclick="App.selectCampaignById('${c.id}');App.closeAllDropdowns()">
         <span class="dropdown-item-name">${esc(c.name)}</span>
         <span class="dropdown-item-sub">${c.ad_count || 0} ads · ${esc(c.mode)}</span>
+        <button class="dropdown-item-delete" title="Delete campaign"
+                onclick="event.stopPropagation();App.confirmDeleteCampaign('${c.id}')">✕</button>
       </div>`).join('');
   }
 
@@ -751,6 +753,36 @@ const App = (() => {
       updateCampaignSwitcher();
       toast(`Campaign "${data.name}" created`);
     } catch (e) { toast(e.message, 'error'); }
+  }
+
+  function confirmDeleteCampaign(campaignId) {
+    const c = state.campaigns.find(x => x.id === campaignId);
+    if (!c) return;
+    const nameEl = document.getElementById('delete-campaign-modal-name');
+    if (nameEl) nameEl.textContent = c.name;
+    const confirmBtn = document.getElementById('btn-confirm-delete-campaign');
+    if (confirmBtn) confirmBtn.onclick = () => deleteCampaign(campaignId);
+    closeAllDropdowns();
+    openModal('modal-delete-campaign');
+  }
+
+  async function deleteCampaign(campaignId) {
+    closeModal('modal-delete-campaign');
+    try {
+      await api.delete(`/campaigns/${campaignId}`);
+      const wasActive = state.activeCampaign?.id === campaignId;
+      state.campaigns = state.campaigns.filter(c => c.id !== campaignId);
+      if (wasActive) {
+        state.activeCampaign = null;
+        state.boardAds       = [];
+        state.boardFiltered  = [];
+        state.concepts.plan  = null;
+        setWorkspaceState(WS.EMPTY);
+        updatePanelHeader();
+      }
+      updateCampaignSwitcher();
+      toast('Campaign deleted');
+    } catch (e) { toast('Delete failed: ' + e.message, 'error'); }
   }
 
   // ── Campaign Board ───────────────────────────────────────────
@@ -1859,6 +1891,36 @@ const App = (() => {
     }
   }
 
+  // ── Image compression helper (Canvas API) ────────────────────
+  // Resizes to maxPx on the longest side and re-encodes as JPEG.
+  // Falls back to the original file on any error.
+  async function compressImageFile(file, maxPx = 1024, quality = 0.82) {
+    return new Promise((resolve) => {
+      if (!file || !file.type.startsWith('image/')) return resolve(file);
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.round(img.naturalWidth  * scale);
+        const h = Math.round(img.naturalHeight * scale);
+        try {
+          const canvas  = document.createElement('canvas');
+          canvas.width  = w;
+          canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          canvas.toBlob(
+            (blob) => resolve(blob ? new File([blob], file.name, { type: 'image/jpeg' }) : file),
+            'image/jpeg',
+            quality
+          );
+        } catch { resolve(file); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
   // ── Concept Plan Generation ──────────────────────────────────
   async function generateConceptPlan() {
     if (!state.activeBrand) return toast('Select a brand first', 'error');
@@ -1876,10 +1938,12 @@ const App = (() => {
     if (state.concepts.selectedFormatIds.length) {
       formData.append('format_ids', JSON.stringify(state.concepts.selectedFormatIds));
     }
-    if (state.concepts.productFile)
-      formData.append('product_image',    state.concepts.productFile);
-    else if (state.concepts.productAssetId)
+    if (state.concepts.productFile) {
+      const compressed = await compressImageFile(state.concepts.productFile);
+      formData.append('product_image', compressed);
+    } else if (state.concepts.productAssetId) {
       formData.append('product_asset_id', state.concepts.productAssetId);
+    }
 
     try {
       const { data } = await api.upload('/concepts/plan', formData);
@@ -2960,7 +3024,7 @@ const App = (() => {
     togglePersona, openCreatePersonaModal, submitNewPersona,
 
     // Campaigns
-    selectCampaignById, createCampaign, selectNewCampaignMode,
+    selectCampaignById, createCampaign, selectNewCampaignMode, confirmDeleteCampaign, deleteCampaign,
 
     // Board
     filterBoard: _filterBoardDebounced, downloadAd, approveAd,

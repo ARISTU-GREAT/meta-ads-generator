@@ -1,20 +1,19 @@
 const express  = require('express');
 const router   = express.Router();
 const multer   = require('multer');
-const path     = require('path');
 const fs       = require('fs');
 const OpenAI   = require('openai');
 const { query }    = require('../db');
 const { asyncHandler, AppError } = require('../utils/errors');
 const { isBrandSetupComplete } = require('../utils/brandKit');
 const { generateConceptPlan, formatsData } = require('../services/conceptPlanService');
-const { resolveAssetToFile } = require('../utils/assetResolver');
 
 const { TEMP_DIR } = require('../utils/paths');
 
+// Allow up to 20 MB per uploaded product image (client compresses first, but keep headroom)
 const upload = multer({
   dest: TEMP_DIR,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) cb(null, true);
     else cb(new AppError('Invalid file type. Use JPG, PNG, or WebP.', 400), false);
@@ -33,14 +32,15 @@ router.get('/formats', (_req, res) => {
   res.json({ success: true, data: formatsData });
 });
 
-// POST /api/concepts/plan — AI-generate a concept plan
+// POST /api/concepts/plan
 // Body: multipart/form-data
-//   brand_id       — UUID (required)
-//   product_image  — file (optional but strongly recommended)
-//   strategy       — string (optional)
-//   concept_count  — number (1–12, default 5)
-//   aspect_ratio   — square | portrait | landscape
-//   format_ids     — JSON array of selected format ids (optional, leave blank for AI choice)
+//   brand_id          — UUID (required)
+//   product_image     — file  (optional; compressed to ≤1024px by client before upload)
+//   product_asset_id  — UUID  (optional; use instead of uploading a file)
+//   strategy          — string (optional)
+//   concept_count     — 1–12 (default 5)
+//   aspect_ratio      — square | portrait | landscape
+//   format_ids        — JSON array of selected format ids (optional)
 router.post(
   '/plan',
   upload.single('product_image'),
@@ -53,12 +53,7 @@ router.post(
       throw new AppError('OpenAI API key is not configured on the server. Contact your administrator.', 500);
     }
 
-    let openai;
-    try {
-      openai = getOpenAI();
-    } catch (err) {
-      throw new AppError(err.message, 500);
-    }
+    const openai = getOpenAI();
 
     const [brandRes, personasRes] = await Promise.all([
       query(`SELECT * FROM brands WHERE id = $1`, [brand_id]),
@@ -72,15 +67,57 @@ router.post(
       throw new AppError('Brand Setup incomplete. Complete Brand Setup before planning concepts.', 400, { required_fields: kitCheck.missing_labels });
     }
 
-    // ── Resolve product image ────────────────────────────────────
-    let productResolved = null;
+    // ── Resolve product image ─────────────────────────────────────
+    // Preferred path: uploaded file (already compressed to ≤1024px by browser).
+    // Asset path: read data URL directly from DB — no temp-file write/read roundtrip.
+    let productImagePath     = null;
+    let productImageMime     = null;
+    let productImageDataUrl  = null; // used when asset comes from DB
+    let cleanupUploadedFile  = () => {};
+
     if (req.file) {
-      productResolved = { path: req.file.path, mime: req.file.mimetype, cleanup() {} };
+      // Uploaded file — check it isn't suspiciously large after compression
+      const fileSizeKB = req.file.size / 1024;
+      if (fileSizeKB > 8 * 1024) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        throw new AppError(
+          'Image too large. Please use a smaller image or an uploaded brand asset. (max ~8 MB after compression)',
+          413
+        );
+      }
+      productImagePath = req.file.path;
+      productImageMime = req.file.mimetype;
+      cleanupUploadedFile = () => {
+        try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch {}
+      };
     } else if (product_asset_id) {
+      // Asset path: pull data URL straight from DB, skip temp file entirely
       try {
-        productResolved = await resolveAssetToFile(product_asset_id);
+        const { rows: assetRows } = await query(
+          'SELECT file_url, mime_type FROM brand_assets WHERE id = $1',
+          [product_asset_id]
+        );
+        if (!assetRows.length || !assetRows[0].file_url) {
+          throw new AppError(`Asset ${product_asset_id} not found`, 404);
+        }
+        const raw = assetRows[0].file_url;
+        // Validate it looks like a data URL
+        if (!raw.startsWith('data:')) {
+          throw new AppError('Asset image format is not supported (expected base64 data URL)', 500);
+        }
+        // Guard: reject if base64 payload > ~6 MB (≈ 4.5 MB raw image) to avoid oversized OpenAI requests
+        const b64Len = raw.length - raw.indexOf(',') - 1;
+        if (b64Len > 6 * 1024 * 1024) {
+          throw new AppError(
+            'Brand asset image is too large to use for concept planning. Please upload a smaller product image instead.',
+            413
+          );
+        }
+        productImageDataUrl = raw;
+        productImageMime    = assetRows[0].mime_type || raw.match(/^data:([^;]+)/)?.[1] || 'image/jpeg';
       } catch (err) {
-        throw new AppError(`Could not load product image: ${err.message}`, 400);
+        if (err instanceof AppError) throw err;
+        throw new AppError(`Could not load product asset: ${err.message}`, 400);
       }
     }
 
@@ -97,14 +134,14 @@ router.post(
 
     const debugCtx = {
       brand_id,
-      concept_count: conceptCount,
-      aspect_ratio:  ratioValue,
+      concept_count:      conceptCount,
+      aspect_ratio:       ratioValue,
       model,
-      has_product_image: !!productResolved,
-      format_ids_count:  selectedFormatIds?.length ?? null,
+      image_source:       req.file ? 'upload' : product_asset_id ? 'asset' : 'none',
+      format_ids_count:   selectedFormatIds?.length ?? null,
     };
 
-    console.log('[concepts/plan] starting concept plan', debugCtx);
+    console.log('[concepts/plan] starting', debugCtx);
 
     // ── Generate plan ─────────────────────────────────────────────
     let plan;
@@ -112,38 +149,33 @@ router.post(
       plan = await generateConceptPlan({
         openai,
         brand,
-        personas:         personasRes.rows,
-        productImagePath: productResolved?.path || null,
-        productImageMime: productResolved?.mime || null,
-        strategy:         strategy    || '',
+        personas:            personasRes.rows,
+        productImagePath,
+        productImageMime,
+        productImageDataUrl, // takes priority over path when set
+        strategy:            strategy || '',
         conceptCount,
-        aspectRatio:      ratioValue,
+        aspectRatio:         ratioValue,
         selectedFormatIds,
       });
     } catch (err) {
-      console.error('[concepts/plan] generateConceptPlan failed', {
+      console.error('[concepts/plan] failed', {
         message: err.message,
         ...debugCtx,
         stack: err.stack?.split('\n').slice(0, 5).join(' | '),
       });
-      // Re-throw with a clear message so the client sees it
       throw new AppError(
         err.message || 'Concept planning failed — check server logs for details',
         err.status || err.statusCode || 500
       );
     } finally {
-      productResolved?.cleanup();
-      if (req.file?.path) {
-        try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch {}
-      }
+      cleanupUploadedFile();
     }
 
     console.log('[concepts/plan] completed', { concepts: plan.length, ...debugCtx });
 
     const responseBody = { success: true, data: plan };
-    if (process.env.NODE_ENV !== 'production') {
-      responseBody.debug = debugCtx;
-    }
+    if (process.env.NODE_ENV !== 'production') responseBody.debug = debugCtx;
     res.json(responseBody);
   })
 );

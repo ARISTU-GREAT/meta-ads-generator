@@ -27,8 +27,8 @@ const app = express();
 // Trust Vercel/reverse-proxy so secure cookies work behind HTTPS termination
 app.set('trust proxy', 1);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(logger.requestLogger);
 
 // Session — PostgreSQL-backed so sessions survive restarts and Vercel cold starts
